@@ -386,6 +386,10 @@ export const translations = {
     debtorPaymentsAndRequests: 'Debtor Payments and Requests',
     paymentSubmitted: 'Payment Submitted',
     downloadFile: 'Download file',
+    export: 'Export',
+    noDataToExport: 'No data to export',
+    exportSuccess: 'Data exported successfully',
+    exportError: 'Error exporting data',
 
     // Admin Portal - Upload QR Images
     uploadQrImages: 'Upload QR Images',
@@ -892,6 +896,10 @@ export const translations = {
     debtorPaymentsAndRequests: 'การชำระเงินและคำขอของลูกหนี้',
     paymentSubmitted: 'ส่งการชำระเงินแล้ว',
     downloadFile: 'ดาวน์โหลดไฟล์',
+    export: 'ส่งออก',
+    noDataToExport: 'ไม่มีข้อมูลที่จะส่งออก',
+    exportSuccess: 'ส่งออกข้อมูลสำเร็จ',
+    exportError: 'เกิดข้อผิดพลาดในการส่งออกข้อมูล',
 
     // Admin Portal - Upload QR Images
     uploadQrImages: 'อัปโหลดรูป QR',

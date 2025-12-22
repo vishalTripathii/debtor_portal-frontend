@@ -56,6 +56,7 @@ import {
   Error as ErrorIcon,
   Refresh as RefreshIcon,
   Download as DownloadIcon,
+  FileDownload as FileDownloadIcon,
   Notifications as NotificationsIcon,
   Payment as PaymentIcon,
   Warning as WarningIcon,
@@ -348,6 +349,75 @@ const AdminPortal = () => {
       fetchNotifications();
     } catch (error) {
       console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const handleExportDebtorRequests = () => {
+    try {
+      const filteredRequests = getFilteredRequests();
+      
+      if (filteredRequests.length === 0) {
+        showNotification(t('noDataToExport') || 'No data to export', 'warning');
+        return;
+      }
+
+      // Prepare CSV headers
+      const headers = [
+        'Request Type',
+        'Debtor Name',
+        'Account Number',
+        'Outstanding Balance',
+        'Payment Amount',
+        'Transaction Number',
+        'Message',
+        'Received At',
+        'Status'
+      ];
+
+      // Prepare CSV rows
+      const rows = filteredRequests.map(request => {
+        const isPayment = request.type === 'payment_submitted' || request.type === 'payment_request';
+        return [
+          isPayment ? 'Payment Submitted' : 'Not Ready to Pay',
+          request.debtor?.name || '-',
+          request.debtor?.account_number || '-',
+          request.debtor?.outstanding_balance || 0,
+          request.metadata?.payment_amount || '-',
+          request.metadata?.transaction_number || '-',
+          (request.message || '').replace(/,/g, ';').replace(/\n/g, ' '),
+          new Date(request.created_at).toLocaleString('en-GB', {
+            timeZone: 'Asia/Bangkok',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }),
+          request.read ? 'Read' : 'Unread'
+        ];
+      });
+
+      // Create CSV content
+      const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+      ].join('\n');
+
+      // Create and download the file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `debtor_requests_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      showNotification(t('exportSuccess') || 'Data exported successfully', 'success');
+    } catch (error) {
+      console.error('Error exporting debtor requests:', error);
+      showNotification(t('exportError') || 'Error exporting data', 'error');
     }
   };
 
@@ -2465,6 +2535,15 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                     )}
                     <Button startIcon={<RefreshIcon />} onClick={fetchNotifications} disabled={loading}>
                       {t('refresh')}
+                    </Button>
+                    <Button 
+                      startIcon={<FileDownloadIcon />} 
+                      onClick={handleExportDebtorRequests} 
+                      disabled={loading || getFilteredRequests().length === 0}
+                      variant="contained"
+                      color="primary"
+                    >
+                      {t('export') || 'Export'}
                     </Button>
                   </Box>
                 </Box>
