@@ -1,0 +1,4 @@
+Account Number,Name,Email,Phone,National ID,Outstanding Balance,Debt Type,Original Creditor,Loan CONTRACT DATE
+ACC-TEST-001,John Smith,john.smith@customer.com,555-0101,ID123456789,15000,Personal Loan,ABC Bank,2024-01-15
+ACC-TEST-002,Jane Doe,jane.doe@customer.com,555-0102,ID987654321,25000,Credit Card,XYZ Finance,2024-02-20
+ACC-TEST-003,Bob Johnson,bob.johnson@customer.com,555-0103,ID456789123,8500,Home Loan,DEF Credit,2024-03-10

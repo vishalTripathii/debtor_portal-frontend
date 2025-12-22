@@ -1,0 +1,175 @@
+service: debtor-portal-api
+
+frameworkVersion: '>=3.0.0'
+
+provider:
+  name: aws
+  runtime: python3.9
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  timeout: 900
+  memorySize: 3008
+
+  # API Gateway settings for file uploads
+  apiGateway:
+    binaryMediaTypes:
+      - 'multipart/form-data'
+      - 'application/octet-stream'
+      - 'image/*'
+      - 'application/pdf'
+      - 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    # Maximum payload size is 10MB for API Gateway (AWS limit)
+
+  environment:
+    DEBUG: 'False'
+    STAGE: ${self:provider.stage}
+    # MongoDB
+    MONGODB_URI: 'mongodb+srv://debtorportal:Welleazy2025DB@debtor-portal-cluster.m6wcxqm.mongodb.net/debtor_portal?retryWrites=true&w=majority&appName=debtor-portal-cluster'
+    # S3
+    S3_BUCKET_NAME: power-amc-debtor-media-${self:provider.stage}
+    S3_BUCKET: power-amc-debtor-media-${self:provider.stage}
+    S3_REGION: ${self:provider.region}
+    USE_S3_STORAGE: 'True'
+    AWS_STORAGE_BUCKET_NAME: power-amc-debtor-media-${self:provider.stage}
+    AWS_DEFAULT_ACL: 'public-read'
+    AWS_S3_CUSTOM_DOMAIN: ''
+    AWS_S3_OBJECT_PARAMETERS: '{"CacheControl": "max-age=86400"}'
+    # SQS
+    PDF_QUEUE_URL: ''
+    USE_SQS_FOR_PDF: 'False'
+    # Django
+    SECRET_KEY: 'your-secret-key-here'
+    ALLOWED_HOSTS: '*'
+    # Email Settings (Console mode for demo)
+    EMAIL_BACKEND: 'django.core.mail.backends.console.EmailBackend'
+    EMAIL_HOST: 'smtpout.secureserver.net'
+    EMAIL_PORT: '465'
+    EMAIL_USE_TLS: 'False'
+    EMAIL_USE_SSL: 'True'
+    EMAIL_TIMEOUT: '30'
+    EMAIL_HOST_USER: 'hello@poweramc.co'
+    EMAIL_HOST_PASSWORD: 'Strive*12345'
+    DEFAULT_FROM_EMAIL: 'hello@poweramc.co'
+
+  iam:
+    role:
+      statements:
+        # S3 permissions for existing bucket
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+            - s3:ListBucket
+            - s3:HeadObject
+          Resource:
+            - arn:aws:s3:::power-amc-debtor-media-${self:provider.stage}
+            - arn:aws:s3:::power-amc-debtor-media-${self:provider.stage}/*
+        # SSM Parameter Store
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+          Resource:
+            - arn:aws:ssm:${self:provider.region}:*:parameter/debtor-portal/${self:provider.stage}/*
+        # Lambda invoke for async processing (including self-invocation for continuation)
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+            - lambda:InvokeAsync
+          Resource:
+            - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-excelProcessor
+            - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-qrProcessor
+            - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-api
+            - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-email
+
+custom:
+  pythonRequirements:
+    dockerizePip: true
+    slim: true
+    strip: true
+
+plugins:
+  - serverless-python-requirements
+  - serverless-offline
+
+functions:
+  # Main Django API
+  api:
+    handler: lambda_handler.handler
+    timeout: 900
+    memorySize: 3008
+    events:
+      - http:
+          path: /{proxy+}
+          method: ANY
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+              - X-Requested-With
+            allowCredentials: false
+      - http:
+          path: /
+          method: ANY
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - X-Amz-Date
+              - Authorization
+              - X-Api-Key
+              - X-Amz-Security-Token
+              - X-Amz-User-Agent
+              - X-Requested-With
+            allowCredentials: false
+
+  # Excel Processor - NO API Gateway attachment (can run full 900s)
+  excelProcessor:
+    handler: excel_processor.handler
+    timeout: 900
+    memorySize: 3008
+    # NO events - invoked directly by the api function
+
+  # QR Code Processor - NO API Gateway attachment (can run full 900s)
+  # Handles ZIP files with thousands of QR images, PDFs, etc.
+  qrProcessor:
+    handler: qr_processor.handler
+    timeout: 900
+    memorySize: 3008
+    # NO events - invoked directly by the api function
+
+  # Email Service (Node.js)
+  email:
+    handler: email_lambda.handler
+    runtime: nodejs18.x
+    timeout: 30
+    memorySize: 512
+    events:
+      - http:
+          path: /email/{action+}
+          method: ANY
+          cors: true
+
+package:
+  individually: false
+  patterns:
+    - '!node_modules/**'
+    - '!.git/**'
+    - '!.pytest_cache/**'
+    - '!test_*.py'
+    - '!tests/**'
+    - '!**/__pycache__/**'
+    - '!venv/**'
+    - '!env/**'
+    - '!.serverless/**'
+    - '!layers/**'
+    # Include node_modules for email Lambda
+    - 'node_modules/nodemailer/**'
+    - 'email_lambda.js'
+    - 'package.json'

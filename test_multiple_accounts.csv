@@ -1,0 +1,4 @@
+Account Number,Name,Email,Phone,National ID,Outstanding Balance,Debt Type,Original Creditor,Loan CONTRACT DATE
+ACC-MULTI-001,Sarah Wilson,hello@poweramc.co,555-2001,ID555666777,12000,Personal Loan,ABC Bank,2024-01-15
+ACC-MULTI-002,Sarah Wilson,hello@poweramc.co,555-2001,ID555666777,8500,Credit Card,XYZ Finance,2024-02-20
+ACC-MULTI-003,Sarah Wilson,hello@poweramc.co,555-2001,ID555666777,25000,Home Loan,DEF Credit,2024-03-10
