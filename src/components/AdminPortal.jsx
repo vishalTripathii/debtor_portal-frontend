@@ -2731,7 +2731,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                         align: 'center',
                         renderCell: (params) => (
                           <Typography variant="body2">
-                            {formatFileSize(params.value)}
+                            {params.value != null && params.value !== undefined ? formatFileSize(params.value) : 'undefined'}
                           </Typography>
                         ),
                       }] : []),
@@ -2742,7 +2742,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                         headerAlign: 'center',
                         align: 'center',
                         renderCell: (params) => (
-                          <Chip label={params.value} size="small" color="primary" variant="outlined" />
+                          <Chip label={params.value != null && params.value !== undefined ? params.value : 0} size="small" color="primary" variant="outlined" />
                         ),
                       }] : []),
                       ...(systemSettings?.table_columns?.upload_history?.inserted_count !== false ? [{
@@ -2752,7 +2752,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                         headerAlign: 'center',
                         align: 'center',
                         renderCell: (params) => (
-                          <Chip label={params.value} size="small" color="success" />
+                          <Chip label={params.value != null && params.value !== undefined ? params.value : 0} size="small" color="success" />
                         ),
                       }] : []),
                       ...(systemSettings?.table_columns?.upload_history?.updated_count !== false ? [{
@@ -2762,7 +2762,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                         headerAlign: 'center',
                         align: 'center',
                         renderCell: (params) => (
-                          <Chip label={params.value} size="small" color="info" />
+                          <Chip label={params.value != null && params.value !== undefined ? params.value : 0} size="small" color="info" />
                         ),
                       }] : []),
                       ...(systemSettings?.table_columns?.upload_history?.uploaded_by !== false ? [{

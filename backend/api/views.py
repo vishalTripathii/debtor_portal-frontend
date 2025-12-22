@@ -3726,11 +3726,43 @@ def get_upload_history(request):
             {'file_content': 0}  # Exclude file content from listing
         ).sort('uploaded_at', -1).limit(100))
 
-        # Convert ObjectId to string for JSON serialization
+        # Convert ObjectId to string for JSON serialization and add file_size if missing
         for record in history_records:
+            original_id = record['_id']  # Keep original ObjectId for database update
             record['_id'] = str(record['_id'])
             if 'uploaded_at' in record:
                 record['uploaded_at'] = record['uploaded_at'].isoformat()
+            
+            # Normalize field names - map 'inserted' to 'inserted_count' and 'updated' to 'updated_count'
+            if 'inserted' in record and 'inserted_count' not in record:
+                record['inserted_count'] = record.get('inserted', 0)
+            if 'updated' in record and 'updated_count' not in record:
+                record['updated_count'] = record.get('updated', 0)
+            
+            # Ensure fields exist with default values if missing
+            if 'inserted_count' not in record:
+                record['inserted_count'] = record.get('inserted', 0)
+            if 'updated_count' not in record:
+                record['updated_count'] = record.get('updated', 0)
+            if 'total_records' not in record:
+                record['total_records'] = record.get('inserted_count', 0) + record.get('updated_count', 0)
+            
+            # If file_size is missing, try to calculate from stored file
+            if 'file_size' not in record or record.get('file_size') is None:
+                try:
+                    # Try to get file size from storage
+                    file_path = record.get('file_path') or record.get('saved_filename')
+                    if file_path:
+                        file_bytes = get_file(file_path)
+                        record['file_size'] = len(file_bytes)
+                        # Update database with calculated file_size
+                        upload_history.update_one(
+                            {'_id': original_id},
+                            {'$set': {'file_size': record['file_size']}}
+                        )
+                except Exception as e:
+                    # If file not found or error, set to None
+                    record['file_size'] = None
 
         return JsonResponse({
             'success': True,
