@@ -153,6 +153,14 @@ const AdminPortal = () => {
   const [dialogImage, setDialogImage] = useState(null);
   const [dialogImageLoading, setDialogImageLoading] = useState(false);
 
+  // Account Deletion states
+  const [showAccountDeletion, setShowAccountDeletion] = useState(false);
+  const [accountsForDeletion, setAccountsForDeletion] = useState([]);
+  const [selectedAccountsToDelete, setSelectedAccountsToDelete] = useState([]);
+  const [loadingAccountsForDeletion, setLoadingAccountsForDeletion] = useState(false);
+  const [deletingAccounts, setDeletingAccounts] = useState(false);
+  const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
+
   // Notification states
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -418,6 +426,85 @@ const AdminPortal = () => {
     } catch (error) {
       console.error('Error exporting debtor requests:', error);
       showNotification(t('exportError') || 'Error exporting data', 'error');
+    }
+  };
+
+  const handleOpenAccountDeletion = async () => {
+    setShowAccountDeletion(true);
+    setLoadingAccountsForDeletion(true);
+    try {
+      const response = await adminApi.getAllDebtors();
+      setAccountsForDeletion(response.debtors || []);
+    } catch (error) {
+      console.error('Error fetching accounts:', error);
+      showNotification(t('errorFetchingAccounts') || 'Error fetching accounts', 'error');
+    } finally {
+      setLoadingAccountsForDeletion(false);
+    }
+  };
+
+  const handleSelectAccountForDeletion = (accountNumber) => {
+    setSelectedAccountsToDelete(prev => {
+      if (prev.includes(accountNumber)) {
+        return prev.filter(acc => acc !== accountNumber);
+      } else {
+        return [...prev, accountNumber];
+      }
+    });
+  };
+
+  const handleSelectAllAccounts = (event) => {
+    if (event.target.checked) {
+      setSelectedAccountsToDelete(accountsForDeletion.map(acc => acc.account_number));
+    } else {
+      setSelectedAccountsToDelete([]);
+    }
+  };
+
+  const handleDeleteSelectedAccounts = async () => {
+    if (selectedAccountsToDelete.length === 0) {
+      showNotification(t('selectAccountsToDelete') || 'Please select accounts to delete', 'warning');
+      return;
+    }
+    setDeleteConfirmDialog(true);
+  };
+
+  const handleConfirmDeletion = async () => {
+    setDeletingAccounts(true);
+    setDeleteConfirmDialog(false);
+    
+    try {
+      let successCount = 0;
+      let errorCount = 0;
+
+      for (const accountNumber of selectedAccountsToDelete) {
+        try {
+          await adminApi.deleteDebtor(accountNumber);
+          successCount++;
+        } catch (error) {
+          console.error(`Error deleting account ${accountNumber}:`, error);
+          errorCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        showNotification(`${successCount} ${t('accountsDeletedSuccess') || 'accounts deleted successfully'}`, 'success');
+        // Refresh the accounts list
+        const response = await adminApi.getAllDebtors();
+        setAccountsForDeletion(response.debtors || []);
+        setSelectedAccountsToDelete([]);
+        // Refresh debtors in main view if needed
+        fetchDebtors();
+      }
+      
+      if (errorCount > 0) {
+        showNotification(`${errorCount} ${t('accountsDeleteFailed') || 'accounts failed to delete'}`, 'error');
+      }
+    } catch (error) {
+      console.error('Error during bulk deletion:', error);
+      showNotification(t('errorDeletingAccounts') || 'Error deleting accounts', 'error');
+    } finally {
+      setDeletingAccounts(false);
     }
   };
 
@@ -1890,14 +1977,24 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                   </Box>
                 </Paper>
 
-                <Button
-                  variant="outlined"
-                  startIcon={<DownloadIcon />}
-                  onClick={downloadTemplate}
-                  sx={{ mb: 3 }}
-                >
-                  {t('downloadTemplate')}
-                </Button>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<DownloadIcon />}
+                    onClick={downloadTemplate}
+                  >
+                    {t('downloadTemplate')}
+                  </Button>
+                  
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={handleOpenAccountDeletion}
+                  >
+                    {t('deleteAccounts') || 'Delete Accounts'}
+                  </Button>
+                </Box>
 
                 <Divider sx={{ my: 3 }} />
 
@@ -3671,6 +3768,155 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
           <Button onClick={handleCloseConfirmDialog}>{t('cancel')}</Button>
           <Button onClick={handleConfirmAction} variant="contained" color="error">
             {t('confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Account Deletion Dialog */}
+      <Dialog 
+        open={showAccountDeletion} 
+        onClose={() => !deletingAccounts && setShowAccountDeletion(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <DeleteIcon color="error" />
+            <Typography variant="h6" fontWeight="bold">
+              {t('accountDeletion') || 'Account Deletion'}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold">
+              {t('deleteWarning') || 'Warning: This action cannot be undone!'}
+            </Typography>
+            <Typography variant="caption">
+              {t('deleteWarningDetails') || 'Deleting accounts will permanently remove all related data including images, receipts, and history.'}
+            </Typography>
+          </Alert>
+
+          {loadingAccountsForDeletion ? (
+            <Box display="flex" justifyContent="center" alignItems="center" py={4}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="body2" color="text.secondary">
+                  {selectedAccountsToDelete.length} {t('of')} {accountsForDeletion.length} {t('accountsSelected') || 'accounts selected'}
+                </Typography>
+                <Box>
+                  <Button 
+                    size="small" 
+                    onClick={handleSelectAllAccounts}
+                    disabled={deletingAccounts}
+                  >
+                    {selectedAccountsToDelete.length === accountsForDeletion.length ? t('deselectAll') || 'Deselect All' : t('selectAll') || 'Select All'}
+                  </Button>
+                </Box>
+              </Box>
+
+              <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding="checkbox">
+                        <input
+                          type="checkbox"
+                          checked={selectedAccountsToDelete.length === accountsForDeletion.length && accountsForDeletion.length > 0}
+                          onChange={handleSelectAllAccounts}
+                          disabled={deletingAccounts}
+                        />
+                      </TableCell>
+                      <TableCell>{t('accountNumber')}</TableCell>
+                      <TableCell>{t('name')}</TableCell>
+                      <TableCell align="right">{t('outstandingBalance')}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {accountsForDeletion.map((account) => (
+                      <TableRow 
+                        key={account.account_number}
+                        hover
+                        onClick={() => !deletingAccounts && handleSelectAccountForDeletion(account.account_number)}
+                        sx={{ cursor: deletingAccounts ? 'not-allowed' : 'pointer' }}
+                      >
+                        <TableCell padding="checkbox">
+                          <input
+                            type="checkbox"
+                            checked={selectedAccountsToDelete.includes(account.account_number)}
+                            onChange={() => handleSelectAccountForDeletion(account.account_number)}
+                            disabled={deletingAccounts}
+                          />
+                        </TableCell>
+                        <TableCell>{account.account_number}</TableCell>
+                        <TableCell>{account.name}</TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" color="error" fontWeight="bold">
+                            {formatCurrency(account.outstanding_balance)}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => setShowAccountDeletion(false)}
+            disabled={deletingAccounts}
+          >
+            {t('cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={deletingAccounts ? <CircularProgress size={20} /> : <DeleteIcon />}
+            onClick={handleDeleteSelectedAccounts}
+            disabled={selectedAccountsToDelete.length === 0 || deletingAccounts}
+          >
+            {deletingAccounts ? t('deleting') || 'Deleting...' : `${t('delete')} ${selectedAccountsToDelete.length} ${t('accounts') || 'Accounts'}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmDialog} onClose={() => setDeleteConfirmDialog(false)}>
+        <DialogTitle>
+          <Typography variant="h6" fontWeight="bold" color="error">
+            {t('confirmDeletion') || 'Confirm Deletion'}
+          </Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {t('confirmDeletionMessage') || `Are you sure you want to delete ${selectedAccountsToDelete.length} account(s)? This action cannot be undone.`}
+          </Alert>
+          <Typography variant="body2" color="text.secondary">
+            {t('deletionWillRemove') || 'This will permanently remove:'}
+          </Typography>
+          <Box component="ul" sx={{ mt: 1, pl: 2 }}>
+            <li><Typography variant="body2">{t('accountInformation') || 'Account information'}</Typography></li>
+            <li><Typography variant="body2">{t('qrCodeImages') || 'QR code images'}</Typography></li>
+            <li><Typography variant="body2">{t('paymentReceipts') || 'Payment receipts'}</Typography></li>
+            <li><Typography variant="body2">{t('relatedNotifications') || 'Related notifications'}</Typography></li>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirmDialog(false)}>
+            {t('cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={<DeleteIcon />}
+            onClick={handleConfirmDeletion}
+          >
+            {t('confirmDelete') || 'Yes, Delete'}
           </Button>
         </DialogActions>
       </Dialog>
