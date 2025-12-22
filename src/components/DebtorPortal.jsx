@@ -2470,14 +2470,8 @@ const DebtorPortal = () => {
                   onChange={(e) => {
                     const method = e.target.value;
                     setPreferredContactMethod(method);
-                    // Pre-populate with customer's actual data
-                    if (method === 'phone') {
-                      setPreferredContactValue(firstAccountData?.phone || '');
-                    } else if (method === 'email') {
-                      setPreferredContactValue(firstAccountData?.email || '');
-                    } else {
-                      setPreferredContactValue('');
-                    }
+                    // Don't auto-fill - let user enter manually
+                    setPreferredContactValue('');
                   }}
                 >
                   <MenuItem value="phone">{t('contactByPhone')}</MenuItem>
