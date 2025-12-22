@@ -3705,7 +3705,7 @@ def generate_payment_qr(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def get_upload_history(request):
-    """Get upload history (admin only)"""
+    """Get upload history (admin only) - now fetches from processing_jobs collection"""
     try:
         # Verify admin token
         auth_header = request.headers.get('Authorization')
@@ -3718,51 +3718,42 @@ def get_upload_history(request):
         if not payload or payload.get('role') not in ['admin', 'super_admin']:
             return JsonResponse({'error': 'Unauthorized'}, status=401)
 
-        upload_history = get_upload_history_collection()
+        # Now fetch from processing_jobs collection instead of upload_history
+        processing_jobs = get_processing_jobs_collection()
 
-        # Get all upload history sorted by uploaded_at descending (exclude file_content)
-        history_records = list(upload_history.find(
-            {},
-            {'file_content': 0}  # Exclude file content from listing
-        ).sort('uploaded_at', -1).limit(100))
+        # Get all processing jobs sorted by created_at descending
+        history_records = list(processing_jobs.find(
+            {'type': 'excel_upload'}  # Only get excel uploads
+        ).sort('created_at', -1).limit(100))
 
-        # Convert ObjectId to string for JSON serialization and add file_size if missing
+        # Convert ObjectId to string for JSON serialization and map fields
         for record in history_records:
-            original_id = record['_id']  # Keep original ObjectId for database update
             record['_id'] = str(record['_id'])
-            if 'uploaded_at' in record:
+            
+            # Map processing_jobs fields to upload_history format for frontend compatibility
+            record['upload_id'] = record.get('job_id', str(record['_id']))
+            record['filename'] = record.get('original_filename', 'Unknown')
+            record['uploaded_at'] = record.get('created_at')
+            record['uploaded_by'] = record.get('created_by', 'Unknown')
+            
+            # File size from processing_jobs
+            record['file_size'] = record.get('file_size', 0)
+            
+            # Record counts from processing_jobs
+            record['total_records'] = record.get('total_records', 0)
+            record['inserted_count'] = record.get('inserted_count', 0)
+            record['updated_count'] = record.get('updated_count', 0)
+            
+            # Status from processing_jobs
+            record['status'] = record.get('status', 'unknown')
+            
+            # Format datetime for JSON serialization
+            if 'uploaded_at' in record and record['uploaded_at']:
                 record['uploaded_at'] = record['uploaded_at'].isoformat()
             
-            # Normalize field names - map 'inserted' to 'inserted_count' and 'updated' to 'updated_count'
-            if 'inserted' in record and 'inserted_count' not in record:
-                record['inserted_count'] = record.get('inserted', 0)
-            if 'updated' in record and 'updated_count' not in record:
-                record['updated_count'] = record.get('updated', 0)
-            
-            # Ensure fields exist with default values if missing
-            if 'inserted_count' not in record:
-                record['inserted_count'] = record.get('inserted', 0)
-            if 'updated_count' not in record:
-                record['updated_count'] = record.get('updated', 0)
-            if 'total_records' not in record:
-                record['total_records'] = record.get('inserted_count', 0) + record.get('updated_count', 0)
-            
-            # If file_size is missing, try to calculate from stored file
-            if 'file_size' not in record or record.get('file_size') is None:
-                try:
-                    # Try to get file size from storage
-                    file_path = record.get('file_path') or record.get('saved_filename')
-                    if file_path:
-                        file_bytes = get_file(file_path)
-                        record['file_size'] = len(file_bytes)
-                        # Update database with calculated file_size
-                        upload_history.update_one(
-                            {'_id': original_id},
-                            {'$set': {'file_size': record['file_size']}}
-                        )
-                except Exception as e:
-                    # If file not found or error, set to None
-                    record['file_size'] = None
+            # Store the staging_key for download functionality
+            record['staging_key'] = record.get('staging_key')
+            record['staged_filename'] = record.get('staged_filename')
 
         return JsonResponse({
             'success': True,
@@ -3777,7 +3768,7 @@ def get_upload_history(request):
 @csrf_exempt
 @require_http_methods(["GET"])
 def download_upload_file(request, upload_id):
-    """Download a previously uploaded file (admin only)"""
+    """Download a previously uploaded file (admin only) - now uses processing_jobs collection"""
     try:
         # Verify admin token
         auth_header = request.headers.get('Authorization')
@@ -3790,41 +3781,124 @@ def download_upload_file(request, upload_id):
         if not payload or payload.get('role') not in ['admin', 'super_admin']:
             return JsonResponse({'error': 'Unauthorized'}, status=401)
 
-        upload_history = get_upload_history_collection()
+        # Fetch from processing_jobs collection instead
+        processing_jobs = get_processing_jobs_collection()
 
-        # Find the upload record
-        record = upload_history.find_one({'_id': ObjectId(upload_id)})
+        # Find the processing job record - try multiple approaches
+        record = None
+        
+        # Try 1: Find by ObjectId
+        try:
+            record = processing_jobs.find_one({'_id': ObjectId(upload_id)})
+        except Exception as e:
+            print(f"Could not find by ObjectId: {e}")
+        
+        # Try 2: If not found, try by job_id string
+        if not record:
+            record = processing_jobs.find_one({'job_id': upload_id})
+        
+        # Try 3: If still not found, try searching by job_id that matches the upload_id pattern
+        if not record:
+            # The upload_id might be stored in a different format
+            all_jobs = list(processing_jobs.find({'type': 'excel_upload'}).limit(100))
+            for job in all_jobs:
+                if str(job.get('_id')) == upload_id or job.get('job_id') == upload_id:
+                    record = job
+                    break
 
         if not record:
-            return JsonResponse({'error': 'File not found'}, status=404)
+            print(f"File not found for upload_id: {upload_id}")
+            return JsonResponse({
+                'error': f'File not found in database for ID: {upload_id}',
+                'debug_id': upload_id
+            }, status=404)
 
-        # Check for file path (new system) or file_content (legacy)
-        if 'saved_filename' in record:
+        # Get file location from processing_jobs - try multiple fields
+        staging_key = record.get('staging_key')
+        permanent_key = record.get('permanent_key')  # New field for permanent storage
+        
+        if not staging_key and not permanent_key:
+            # Try alternate field names
+            staging_key = record.get('staged_filename') or record.get('file_path')
+        
+        # Priority: permanent_key > staging_key > alternatives
+        if permanent_key or staging_key:
             # Storage-based file system (S3 or local)
-            upload_key = get_upload_key(record['saved_filename'])
-            try:
-                file_data = get_file(upload_key)
+            # Try permanent location first (if available), then staging, then alternatives
+            file_found = False
+            file_data = None
+            tried_keys = []
+            
+            # Try 1: Permanent storage location (highest priority)
+            if permanent_key:
+                tried_keys.append(permanent_key)
+                try:
+                    file_data = get_file(permanent_key)
+                    file_found = True
+                    print(f"File found at permanent location: {permanent_key}")
+                except Exception as e:
+                    print(f"Could not find file at permanent_key {permanent_key}: {e}")
+            
+            # Try 2: Original staging location
+            if not file_found and staging_key:
+                tried_keys.append(staging_key)
+                try:
+                    file_data = get_file(staging_key)
+                    file_found = True
+                    print(f"File found at staging location: {staging_key}")
+                except Exception as e:
+                    print(f"Could not find file at staging_key {staging_key}: {e}")
+                    
+                    # Try 3: Alternative paths as fallback
+                    if staging_key.startswith('excel_staging/'):
+                        # Try uploads directory instead
+                        job_id = record.get('job_id')
+                        if job_id:
+                            # Try with job_id directory structure
+                            alt_key = f'uploads/{job_id}/{record.get("original_filename", os.path.basename(staging_key))}'
+                            tried_keys.append(alt_key)
+                            try:
+                                file_data = get_file(alt_key)
+                                file_found = True
+                                print(f"Found file at alternative location: {alt_key}")
+                            except Exception as e3:
+                                print(f"Could not find file at {alt_key}: {e3}")
+                                
+                                # Try without job_id directory
+                                alt_key2 = f'uploads/{os.path.basename(staging_key)}'
+                                tried_keys.append(alt_key2)
+                                try:
+                                    file_data = get_file(alt_key2)
+                                    file_found = True
+                                    print(f"Found file at alternative location: {alt_key2}")
+                                except Exception as e4:
+                                    print(f"Could not find file at {alt_key2}: {e4}")
+            
+            if file_found and file_data:
                 file_content = base64.b64encode(file_data).decode('utf-8')
                 return JsonResponse({
                     'success': True,
-                    'filename': record.get('filename', 'download.xlsx'),
-                    'content_type': record.get('content_type', 'application/octet-stream'),
+                    'filename': record.get('original_filename', 'download.xlsx'),
+                    'content_type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     'file_content': file_content
                 })
-            except Exception:
-                return JsonResponse({'error': 'File not found in storage'}, status=404)
-        elif 'file_content' in record:
-            # Legacy base64 storage (for backwards compatibility)
-            return JsonResponse({
-                'success': True,
-                'filename': record.get('filename', 'download.xlsx'),
-                'content_type': record.get('content_type', 'application/octet-stream'),
-                'file_content': record['file_content']
-            })
+            else:
+                return JsonResponse({
+                    'error': 'File has been cleaned up from storage. Staging files are temporary and may be removed after processing.',
+                    'message': 'The uploaded file was processed successfully but the file has been deleted from storage. This typically happens for old uploads. For new uploads, files are now saved permanently.',
+                    'staging_key': staging_key,
+                    'permanent_key': permanent_key,
+                    'tried_locations': tried_keys,
+                    'note': 'Files uploaded after this fix will be available for download permanently.'
+                }, status=404)
         else:
-            return JsonResponse({'error': 'File content not available'}, status=404)
+            return JsonResponse({
+                'error': 'File content not available - no staging_key found',
+                'available_fields': list(record.keys())
+            }, status=404)
 
     except Exception as e:
+        print(f"Error in download_upload_file: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 

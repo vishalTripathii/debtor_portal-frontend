@@ -310,6 +310,26 @@ def handler(event, context):
                 if len(errors) < 10:  # Only store first 10 errors
                     errors.append(f"Row {idx + 1}: {str(e)}")
         
+        # Copy file from staging to permanent uploads directory for download
+        try:
+            permanent_key = f"uploads/{job_id}/{original_filename}"
+            print(f"Copying {staging_key} to {permanent_key} for permanent storage")
+            s3_client.copy_object(
+                Bucket=bucket_name,
+                CopySource={'Bucket': bucket_name, 'Key': staging_key},
+                Key=permanent_key
+            )
+            print(f"File copied to permanent storage: {permanent_key}")
+            
+            # Update job record with permanent file location
+            jobs_collection.update_one(
+                {'job_id': job_id},
+                {'$set': {'permanent_key': permanent_key}}
+            )
+        except Exception as copy_err:
+            print(f"Warning: Failed to copy file to permanent storage: {copy_err}")
+            # Continue anyway - file still in staging
+        
         # Mark job as completed
         jobs_collection.update_one(
             {'job_id': job_id},
