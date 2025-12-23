@@ -75,6 +75,9 @@ import {
   Save as SaveIcon,
   Lock as LockIcon,
   Visibility as VisibilityIcon,
+  Edit as EditIcon,
+  MoreVert as MoreVertIcon,
+  ArrowDropDown as ArrowDropDownIcon,
 } from '@mui/icons-material';
 import Grid from '@mui/material/Grid';
 import { adminApi, settingsApi } from '../services/api';
@@ -160,6 +163,21 @@ const AdminPortal = () => {
   const [loadingAccountsForDeletion, setLoadingAccountsForDeletion] = useState(false);
   const [deletingAccounts, setDeletingAccounts] = useState(false);
   const [deleteConfirmDialog, setDeleteConfirmDialog] = useState(false);
+  
+  // Account Update states
+  const [showAccountUpdate, setShowAccountUpdate] = useState(false);
+  const [accountsForUpdate, setAccountsForUpdate] = useState([]);
+  const [selectedAccountToUpdate, setSelectedAccountToUpdate] = useState(null);
+  const [loadingAccountsForUpdate, setLoadingAccountsForUpdate] = useState(false);
+  const [updatingAccount, setUpdatingAccount] = useState(false);
+  const [updateFormData, setUpdateFormData] = useState({});
+  
+  // Dropdown menu state
+  const [accountMenuAnchor, setAccountMenuAnchor] = useState(null);
+  
+  // Filter states for modals
+  const [deleteFilterQuery, setDeleteFilterQuery] = useState('');
+  const [updateFilterQuery, setUpdateFilterQuery] = useState('');
 
   // Notification states
   const [notifications, setNotifications] = useState([]);
@@ -202,7 +220,7 @@ const AdminPortal = () => {
   // Pagination and search states
   const [pagination, setPagination] = useState({
     page: 1,
-    pageSize: 50,
+    pageSize: 1000,
     totalCount: 0,
     totalPages: 0,
   });
@@ -432,8 +450,10 @@ const AdminPortal = () => {
   const handleOpenAccountDeletion = async () => {
     setShowAccountDeletion(true);
     setLoadingAccountsForDeletion(true);
+    setDeleteFilterQuery('');
+    setAccountMenuAnchor(null);
     try {
-      const response = await adminApi.getAllDebtors();
+      const response = await adminApi.getAllDebtors({ pageSize: 10000 });
       setAccountsForDeletion(response.debtors || []);
     } catch (error) {
       console.error('Error fetching accounts:', error);
@@ -454,8 +474,9 @@ const AdminPortal = () => {
   };
 
   const handleSelectAllAccounts = (event) => {
+    const filteredAccounts = getFilteredAccountsForDeletion();
     if (event.target.checked) {
-      setSelectedAccountsToDelete(accountsForDeletion.map(acc => acc.account_number));
+      setSelectedAccountsToDelete(filteredAccounts.map(acc => acc.account_number));
     } else {
       setSelectedAccountsToDelete([]);
     }
@@ -506,6 +527,93 @@ const AdminPortal = () => {
     } finally {
       setDeletingAccounts(false);
     }
+  };
+
+  const handleOpenAccountUpdate = async () => {
+    setShowAccountUpdate(true);
+    setLoadingAccountsForUpdate(true);
+    setUpdateFilterQuery('');
+    setSelectedAccountToUpdate(null);
+    setAccountMenuAnchor(null);
+    try {
+      const response = await adminApi.getAllDebtors({ pageSize: 10000 });
+      setAccountsForUpdate(response.debtors || []);
+    } catch (error) {
+      console.error('Error fetching accounts:', error);
+      showNotification(t('errorFetchingAccounts') || 'Error fetching accounts', 'error');
+    } finally {
+      setLoadingAccountsForUpdate(false);
+    }
+  };
+
+  const handleSelectAccountToUpdate = (account) => {
+    setSelectedAccountToUpdate(account);
+    setUpdateFormData({
+      name: account.name || '',
+      phone: account.phone || '',
+      email: account.email || '',
+      outstanding_balance: account.outstanding_balance || '',
+      debt_type: account.debt_type || '',
+      original_creditor: account.original_creditor || '',
+      case_id: account.case_id || '',
+      national_id: account.national_id || '',
+      loan_contract_date: account.loan_contract_date || '',
+    });
+  };
+
+  const handleUpdateFormChange = (field, value) => {
+    setUpdateFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleConfirmUpdate = async () => {
+    if (!selectedAccountToUpdate) {
+      showNotification(t('selectAccountToUpdate') || 'Please select an account to update', 'warning');
+      return;
+    }
+
+    setUpdatingAccount(true);
+    try {
+      await adminApi.updateDebtor(selectedAccountToUpdate.account_number, updateFormData);
+      showNotification(t('accountUpdatedSuccess') || 'Account updated successfully', 'success');
+      
+      // Refresh the accounts list
+      const response = await adminApi.getAllDebtors({ pageSize: 10000 });
+      setAccountsForUpdate(response.debtors || []);
+      setSelectedAccountToUpdate(null);
+      setUpdateFormData({});
+      
+      // Refresh debtors in main view
+      fetchDebtors();
+    } catch (error) {
+      console.error('Error updating account:', error);
+      showNotification(t('errorUpdatingAccount') || 'Error updating account', 'error');
+    } finally {
+      setUpdatingAccount(false);
+    }
+  };
+
+  const getFilteredAccountsForDeletion = () => {
+    if (!deleteFilterQuery) return accountsForDeletion;
+    
+    const query = deleteFilterQuery.toLowerCase();
+    return accountsForDeletion.filter(account => 
+      account.account_number?.toLowerCase().includes(query) ||
+      account.national_id?.toLowerCase().includes(query) ||
+      account.email?.toLowerCase().includes(query) ||
+      account.name?.toLowerCase().includes(query)
+    );
+  };
+
+  const getFilteredAccountsForUpdate = () => {
+    if (!updateFilterQuery) return accountsForUpdate;
+    
+    const query = updateFilterQuery.toLowerCase();
+    return accountsForUpdate.filter(account => 
+      account.account_number?.toLowerCase().includes(query) ||
+      account.national_id?.toLowerCase().includes(query) ||
+      account.email?.toLowerCase().includes(query) ||
+      account.name?.toLowerCase().includes(query)
+    );
   };
 
   const handleMarkAllAsRead = async () => {
@@ -1987,13 +2095,29 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                   </Button>
                   
                   <Button
-                    variant="outlined"
-                    color="error"
-                    startIcon={<DeleteIcon />}
-                    onClick={handleOpenAccountDeletion}
+                    variant="contained"
+                    color="primary"
+                    startIcon={<ViewIcon />}
+                    endIcon={<ArrowDropDownIcon />}
+                    onClick={(e) => setAccountMenuAnchor(e.currentTarget)}
                   >
-                    {t('deleteAccounts') || 'Delete Accounts'}
+                    {t('viewAccounts') || 'View Accounts'}
                   </Button>
+                  
+                  <Menu
+                    anchorEl={accountMenuAnchor}
+                    open={Boolean(accountMenuAnchor)}
+                    onClose={() => setAccountMenuAnchor(null)}
+                  >
+                    <MenuItem onClick={handleOpenAccountDeletion}>
+                      <DeleteIcon sx={{ mr: 1 }} color="error" />
+                      {t('bulkDelete') || 'Bulk Delete'}
+                    </MenuItem>
+                    <MenuItem onClick={handleOpenAccountUpdate}>
+                      <EditIcon sx={{ mr: 1 }} color="primary" />
+                      {t('updateAccount') || 'Update Account'}
+                    </MenuItem>
+                  </Menu>
                 </Box>
 
                 <Divider sx={{ my: 3 }} />
@@ -3797,6 +3921,29 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
             </Typography>
           </Alert>
 
+          <TextField
+            fullWidth
+            size="small"
+            placeholder={t('searchByAccountEmailNationalId') || 'Search by Account Number, Email, or National ID...'}
+            value={deleteFilterQuery}
+            onChange={(e) => setDeleteFilterQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+              endAdornment: deleteFilterQuery && (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setDeleteFilterQuery('')}>
+                    <ClearIcon />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
+
           {loadingAccountsForDeletion ? (
             <Box display="flex" justifyContent="center" alignItems="center" py={4}>
               <CircularProgress />
@@ -3805,7 +3952,8 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
             <>
               <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                 <Typography variant="body2" color="text.secondary">
-                  {selectedAccountsToDelete.length} {t('of')} {accountsForDeletion.length} {t('accountsSelected') || 'accounts selected'}
+                  {selectedAccountsToDelete.length} {t('of')} {getFilteredAccountsForDeletion().length} {t('accountsSelected') || 'accounts selected'}
+                  {deleteFilterQuery && ` (${t('filtered')} ${t('from')} ${accountsForDeletion.length} ${t('total')})`}
                 </Typography>
                 <Box>
                   <Button 
@@ -3813,7 +3961,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                     onClick={handleSelectAllAccounts}
                     disabled={deletingAccounts}
                   >
-                    {selectedAccountsToDelete.length === accountsForDeletion.length ? t('deselectAll') || 'Deselect All' : t('selectAll') || 'Select All'}
+                    {selectedAccountsToDelete.length === getFilteredAccountsForDeletion().length ? t('deselectAll') || 'Deselect All' : t('selectAll') || 'Select All'}
                   </Button>
                 </Box>
               </Box>
@@ -3825,7 +3973,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                       <TableCell padding="checkbox">
                         <input
                           type="checkbox"
-                          checked={selectedAccountsToDelete.length === accountsForDeletion.length && accountsForDeletion.length > 0}
+                          checked={selectedAccountsToDelete.length === getFilteredAccountsForDeletion().length && getFilteredAccountsForDeletion().length > 0}
                           onChange={handleSelectAllAccounts}
                           disabled={deletingAccounts}
                         />
@@ -3836,7 +3984,7 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {accountsForDeletion.map((account) => (
+                    {getFilteredAccountsForDeletion().map((account) => (
                       <TableRow 
                         key={account.account_number}
                         hover
@@ -3917,6 +4065,226 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
             onClick={handleConfirmDeletion}
           >
             {t('confirmDelete') || 'Yes, Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Account Update Dialog */}
+      <Dialog 
+        open={showAccountUpdate} 
+        onClose={() => !updatingAccount && setShowAccountUpdate(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <EditIcon color="primary" />
+            <Typography variant="h6" fontWeight="bold">
+              {t('updateAccount') || 'Update Account'}
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="body2" fontWeight="bold">
+              {t('selectAccountToUpdate') || 'Select an account to update its information'}
+            </Typography>
+          </Alert>
+
+          <TextField
+            fullWidth
+            size="small"
+            placeholder={t('searchByAccountEmailNationalId') || 'Search by Account Number, Email, or National ID...'}
+            value={updateFilterQuery}
+            onChange={(e) => setUpdateFilterQuery(e.target.value)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+              endAdornment: updateFilterQuery && (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setUpdateFilterQuery('')}>
+                    <ClearIcon />
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }}
+            sx={{ mb: 2 }}
+          />
+
+          {loadingAccountsForUpdate ? (
+            <Box display="flex" justifyContent="center" alignItems="center" py={4}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
+              <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                <Typography variant="body2" color="text.secondary">
+                  {getFilteredAccountsForUpdate().length} {t('accountsAvailable') || 'accounts available'}
+                  {updateFilterQuery && ` (${t('filtered')} ${t('from')} ${accountsForUpdate.length} ${t('total')})`}
+                </Typography>
+              </Box>
+
+              <Paper variant="outlined" sx={{ maxHeight: 300, overflow: 'auto', mb: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>{t('accountNumber')}</TableCell>
+                      <TableCell>{t('name')}</TableCell>
+                      <TableCell>{t('nationalId')}</TableCell>
+                      <TableCell>{t('email')}</TableCell>
+                      <TableCell>{t('action')}</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {getFilteredAccountsForUpdate().map((account) => (
+                      <TableRow 
+                        key={account.account_number}
+                        hover
+                        selected={selectedAccountToUpdate?.account_number === account.account_number}
+                        sx={{ cursor: 'pointer' }}
+                      >
+                        <TableCell>{account.account_number}</TableCell>
+                        <TableCell>{account.name}</TableCell>
+                        <TableCell>{account.national_id || '-'}</TableCell>
+                        <TableCell>{account.email || '-'}</TableCell>
+                        <TableCell>
+                          <Button
+                            size="small"
+                            variant={selectedAccountToUpdate?.account_number === account.account_number ? 'contained' : 'outlined'}
+                            onClick={() => handleSelectAccountToUpdate(account)}
+                            disabled={updatingAccount}
+                          >
+                            {selectedAccountToUpdate?.account_number === account.account_number ? t('selected') : t('select')}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+
+              {selectedAccountToUpdate && (
+                <Box>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle2" fontWeight="bold" mb={2}>
+                    {t('updateAccountDetails') || 'Update Account Details'}
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('name')}
+                        value={updateFormData.name}
+                        onChange={(e) => handleUpdateFormChange('name', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('phone')}
+                        value={updateFormData.phone}
+                        onChange={(e) => handleUpdateFormChange('phone', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('email')}
+                        type="email"
+                        value={updateFormData.email}
+                        onChange={(e) => handleUpdateFormChange('email', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('nationalId')}
+                        value={updateFormData.national_id}
+                        onChange={(e) => handleUpdateFormChange('national_id', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('outstandingBalance')}
+                        type="number"
+                        value={updateFormData.outstanding_balance}
+                        onChange={(e) => handleUpdateFormChange('outstanding_balance', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('debtType')}
+                        value={updateFormData.debt_type}
+                        onChange={(e) => handleUpdateFormChange('debt_type', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('originalCreditor')}
+                        value={updateFormData.original_creditor}
+                        onChange={(e) => handleUpdateFormChange('original_creditor', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12} sm={6}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('caseId')}
+                        value={updateFormData.case_id}
+                        onChange={(e) => handleUpdateFormChange('case_id', e.target.value)}
+                        disabled={updatingAccount}
+                      />
+                    </Grid>
+                    <Grid item xs={12}>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        label={t('loanContractDate')}
+                        type="date"
+                        value={updateFormData.loan_contract_date}
+                        onChange={(e) => handleUpdateFormChange('loan_contract_date', e.target.value)}
+                        disabled={updatingAccount}
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+                  </Grid>
+                </Box>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowAccountUpdate(false)} disabled={updatingAccount}>
+            {t('cancel')}
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            startIcon={<SaveIcon />}
+            onClick={handleConfirmUpdate}
+            disabled={!selectedAccountToUpdate || updatingAccount}
+          >
+            {updatingAccount ? t('updating') || 'Updating...' : t('updateAccount') || 'Update Account'}
           </Button>
         </DialogActions>
       </Dialog>

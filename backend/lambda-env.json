@@ -1,0 +1,28 @@
+{
+  "Variables": {
+    "DEBUG": "False",
+    "STAGE": "dev",
+    "MONGODB_URI": "mongodb+srv://debtorportal:CyQfePqgUKMDvebF@debtor-portal-cluster.m6wcxqm.mongodb.net/debtor_portal?retryWrites=true&w=majority&appName=debtor-portal-cluster",
+    "S3_BUCKET_NAME": "power-amc-debtor-media-dev",
+    "S3_BUCKET": "power-amc-debtor-media-dev",
+    "S3_REGION": "ap-southeast-1",
+    "USE_S3_STORAGE": "True",
+    "AWS_STORAGE_BUCKET_NAME": "power-amc-debtor-media-dev",
+    "AWS_DEFAULT_ACL": "public-read",
+    "AWS_S3_CUSTOM_DOMAIN": "",
+    "AWS_S3_OBJECT_PARAMETERS": "{\"CacheControl\": \"max-age=86400\"}",
+    "PDF_QUEUE_URL": "",
+    "EMAIL_HOST": "smtp.gmail.com",
+    "EMAIL_PORT": "587",
+    "EMAIL_USE_SSL": "False",
+    "EMAIL_USE_TLS": "True",
+    "EMAIL_HOST_USER": "firoz.khan@welleazy.com",
+    "EMAIL_HOST_PASSWORD": "Master@$1122",
+    "DEFAULT_FROM_EMAIL": "firoz.khan@welleazy.com",
+    "EMAIL_BACKEND": "django.core.mail.backends.smtp.EmailBackend",
+    "EMAIL_TIMEOUT": "30",
+    "SECRET_KEY": "your-secret-key-here",
+    "ALLOWED_HOSTS": "*",
+    "USE_SQS_FOR_PDF": "False"
+  }
+}

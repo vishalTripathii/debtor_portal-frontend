@@ -292,7 +292,7 @@ export const adminApi = {
     const token = localStorage.getItem('token');
     const {
       page = 1,
-      pageSize = 50,
+      pageSize = 100,  // Increased default from 50 to 100
       search = '',
       sortBy = 'created_at',
       sortOrder = 'desc',
@@ -319,13 +319,35 @@ export const adminApi = {
     });
   },
 
-  deleteDebtor: async (accountNumber) => {
+  updateDebtor: async (accountNumber, updateData) => {
     const token = localStorage.getItem('token');
     return apiCall(`/admin/debtor/${accountNumber}/`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(updateData),
+    });
+  },
+
+  deleteDebtor: async (accountNumber) => {
+    const token = localStorage.getItem('token');
+    return apiCall(`/admin/debtor/${accountNumber}/delete/`, {
       method: 'DELETE',
       headers: {
         'Authorization': `Bearer ${token}`,
       },
+    });
+  },
+
+  bulkDeleteDebtors: async (accountNumbers) => {
+    const token = localStorage.getItem('token');
+    return apiCall('/admin/debtors/bulk-delete/', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ account_numbers: accountNumbers }),
     });
   },
 
