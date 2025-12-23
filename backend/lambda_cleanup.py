@@ -12,8 +12,7 @@ from api.database import (
     get_debtors_collection,
     get_debtor_images_collection,
     get_processing_jobs_collection,
-    get_upload_history_collection,
-    get_notifications_collection
+    get_activity_logs_collection
 )
 from api.aws_storage import storage
 
@@ -30,8 +29,7 @@ def cleanup_all_data():
         ('debtors', get_debtors_collection()),
         ('debtor_images', get_debtor_images_collection()),
         ('processing_jobs', get_processing_jobs_collection()),
-        ('upload_history', get_upload_history_collection()),
-        ('notifications', get_notifications_collection())
+        ('activity_logs', get_activity_logs_collection())
     ]
     
     for name, collection in collections:

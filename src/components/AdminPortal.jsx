@@ -178,6 +178,9 @@ const AdminPortal = () => {
   // Filter states for modals
   const [deleteFilterQuery, setDeleteFilterQuery] = useState('');
   const [updateFilterQuery, setUpdateFilterQuery] = useState('');
+  
+  // Upload mode state
+  const [uploadMode, setUploadMode] = useState(''); // '', 'delete', 'update'
 
   // Notification states
   const [notifications, setNotifications] = useState([]);
@@ -1511,73 +1514,143 @@ const AdminPortal = () => {
     setAsyncUploadStatus(null);
 
     try {
-      // Upload all files sequentially
-      let totalInserted = 0;
-      let totalUpdated = 0;
-      const results = [];
+      // Check upload mode and route accordingly
+      if (uploadMode === 'delete') {
+        // Bulk delete mode - direct upload
+        if (selectedFiles.length > 1) {
+          showNotification('Please select only one Excel file for bulk delete', 'warning');
+          setUploadProgress(false);
+          return;
+        }
 
-      for (let i = 0; i < selectedFiles.length; i++) {
-        const file = selectedFiles[i];
+        const file = selectedFiles[0];
+        showNotification('Processing bulk delete...', 'info');
+        
+        const response = await adminApi.bulkDeleteFromExcel(file);
+        
+        if (response.success) {
+          setUploadResult({
+            success: true,
+            message: `Deleted ${response.deleted_count} accounts from Excel file\n` +
+                    `Not found: ${response.not_found_count}\n` +
+                    `Total in Excel: ${response.total_in_excel}`,
+            deleted_count: response.deleted_count,
+            not_found_count: response.not_found_count
+          });
+          
+          showNotification(
+            `✓ Deleted ${response.deleted_count} accounts from Excel file`,
+            'success',
+            8000
+          );
+          
+          setSelectedFiles([]);
+          setUploadMode('');
+          fetchDebtors();
+        }
+      } else if (uploadMode === 'update') {
+        // Bulk update mode - direct upload
+        if (selectedFiles.length > 1) {
+          showNotification('Please select only one Excel file for bulk update', 'warning');
+          setUploadProgress(false);
+          return;
+        }
+
+        const file = selectedFiles[0];
+        showNotification('Processing bulk update...', 'info');
+        
+        const response = await adminApi.bulkUpdateFromExcel(file);
+        
+        if (response.success) {
+          setUploadResult({
+            success: true,
+            message: `Updated ${response.updated_count} accounts from Excel file\n` +
+                    `Not found: ${response.not_found_count}\n` +
+                    `Total in Excel: ${response.total_in_excel}`,
+            updated_count: response.updated_count,
+            not_found_count: response.not_found_count
+          });
+          
+          showNotification(
+            `✓ Updated ${response.updated_count} accounts from Excel file`,
+            'success',
+            8000
+          );
+          
+          setSelectedFiles([]);
+          setUploadMode('');
+          fetchDebtors();
+        }
+      } else {
+        // Normal add mode (default behavior)
+        let totalInserted = 0;
+        let totalUpdated = 0;
+        const results = [];
+
+        for (let i = 0; i < selectedFiles.length; i++) {
+          const file = selectedFiles[i];
+          setUploadResult({
+            success: true,
+            message: `Processing file ${i + 1}/${selectedFiles.length}: ${file.name}...`,
+            inserted: totalInserted,
+            updated: totalUpdated
+          });
+
+          const response = await adminApi.uploadExcel(file, (progress) => {
+            // Update UI with progress
+            setAsyncUploadStatus({
+              status: progress.status,
+              message: progress.message,
+              percentage: progress.percentage,
+              processed_records: progress.processed,
+              total_records: progress.total,
+              inserted_count: progress.inserted,
+              updated_count: progress.updated,
+            });
+            
+            // Update result message for user visibility
+            setUploadResult({
+              success: true,
+              message: `File ${i + 1}/${selectedFiles.length}: ${progress.message}`,
+              isAsync: true,
+              status: progress.status,
+            });
+          });
+          
+          // Accumulate results
+          if (response.success) {
+            totalInserted += response.inserted || 0;
+            totalUpdated += response.updated || 0;
+            results.push({
+              filename: file.name,
+              inserted: response.inserted || 0,
+              updated: response.updated || 0
+            });
+          }
+        }
+
+        // Show final results
+        const resultMessage = results.map(r => 
+          `${r.filename}: ${r.inserted} inserted, ${r.updated} updated`
+        ).join('\\n');
+
         setUploadResult({
           success: true,
-          message: `Processing file ${i + 1}/${selectedFiles.length}: ${file.name}...`,
+          message: `All ${selectedFiles.length} file(s) processed!\\n${resultMessage}`,
           inserted: totalInserted,
           updated: totalUpdated
         });
-
-        const response = await adminApi.uploadExcel(file, (progress) => {
-          // Update UI with progress
-          setAsyncUploadStatus({
-            status: progress.status,
-            message: progress.message,
-            percentage: progress.percentage,
-            processed_records: progress.processed,
-            total_records: progress.total,
-            inserted_count: progress.inserted,
-            updated_count: progress.updated,
-          });
-          
-          // Update result message for user visibility
-          setUploadResult({
-            success: true,
-            message: `File ${i + 1}/${selectedFiles.length}: ${progress.message}`,
-            isAsync: true,
-            status: progress.status,
-          });
-        });
         
-        // Accumulate results
-        if (response.success) {
-          totalInserted += response.inserted || 0;
-          totalUpdated += response.updated || 0;
-          results.push({
-            filename: file.name,
-            inserted: response.inserted || 0,
-            updated: response.updated || 0
-          });
-        }
+        showNotification(
+          `✓ All files processed. Total - Inserted: ${totalInserted}, Updated: ${totalUpdated}`,
+          'success',
+          8000
+        );
+        
+        setSelectedFiles([]);
+        fetchDebtors();
       }
-
-      // Show final results
-      const resultMessage = results.map(r => 
-        `${r.filename}: ${r.inserted} inserted, ${r.updated} updated`
-      ).join('\\n');
-
-      setUploadResult({
-        success: true,
-        message: `All ${selectedFiles.length} file(s) processed!\\n${resultMessage}`,
-        inserted: totalInserted,
-        updated: totalUpdated
-      });
       
-      showNotification(
-        `✓ All files processed. Total - Inserted: ${totalInserted}, Updated: ${totalUpdated}`,
-        'success',
-        8000
-      );
-      
-      setSelectedFiles([]);
-      fetchDebtors();
       fetchUploadHistory();
     } catch (error) {
       console.error('Excel upload error:', error);
@@ -2094,30 +2167,33 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                     {t('downloadTemplate')}
                   </Button>
                   
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={<ViewIcon />}
-                    endIcon={<ArrowDropDownIcon />}
-                    onClick={(e) => setAccountMenuAnchor(e.currentTarget)}
-                  >
-                    {t('viewAccounts') || 'View Accounts'}
-                  </Button>
-                  
-                  <Menu
-                    anchorEl={accountMenuAnchor}
-                    open={Boolean(accountMenuAnchor)}
-                    onClose={() => setAccountMenuAnchor(null)}
-                  >
-                    <MenuItem onClick={handleOpenAccountDeletion}>
-                      <DeleteIcon sx={{ mr: 1 }} color="error" />
-                      {t('bulkDelete') || 'Bulk Delete'}
-                    </MenuItem>
-                    <MenuItem onClick={handleOpenAccountUpdate}>
-                      <EditIcon sx={{ mr: 1 }} color="primary" />
-                      {t('updateAccount') || 'Update Account'}
-                    </MenuItem>
-                  </Menu>
+                  <FormControl size="small" sx={{ minWidth: 200 }}>
+                    <InputLabel>{t('uploadMode') || 'Upload Mode'}</InputLabel>
+                    <Select
+                      value={uploadMode}
+                      label={t('uploadMode') || 'Upload Mode'}
+                      onChange={(e) => setUploadMode(e.target.value)}
+                    >
+                      <MenuItem value="">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <UploadIcon fontSize="small" />
+                          {t('addNew') || 'Add New Accounts'}
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="delete">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <DeleteIcon fontSize="small" color="error" />
+                          {t('bulkDelete') || 'Bulk Delete'}
+                        </Box>
+                      </MenuItem>
+                      <MenuItem value="update">
+                        <Box display="flex" alignItems="center" gap={1}>
+                          <EditIcon fontSize="small" color="primary" />
+                          {t('bulkUpdate') || 'Bulk Update'}
+                        </Box>
+                      </MenuItem>
+                    </Select>
+                  </FormControl>
                 </Box>
 
                 <Divider sx={{ my: 3 }} />

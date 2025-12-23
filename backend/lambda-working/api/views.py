@@ -2212,6 +2212,221 @@ def delete_debtor(request, account_number):
 
 
 @csrf_exempt
+@require_http_methods(["POST"])
+def bulk_delete_from_excel(request):
+    """Delete debtors based on account numbers from Excel file"""
+    try:
+        # Verify admin token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+        token = auth_header.split(' ')[1]
+        payload = verify_jwt_token(token)
+
+        if not payload or payload.get('role') not in ['admin', 'super_admin']:
+            return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+        # Get uploaded file
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'No file uploaded'}, status=400)
+
+        excel_file = request.FILES['file']
+        
+        # Read Excel file
+        import pandas as pd
+        import io
+        
+        try:
+            df = pd.read_excel(io.BytesIO(excel_file.read()))
+        except Exception as e:
+            return JsonResponse({'error': f'Error reading Excel file: {str(e)}'}, status=400)
+
+        # Check if Account Number column exists
+        if 'Account Number' not in df.columns:
+            return JsonResponse({'error': 'Excel file must contain "Account Number" column'}, status=400)
+
+        # Get account numbers from Excel
+        account_numbers = df['Account Number'].dropna().astype(str).tolist()
+        
+        if not account_numbers:
+            return JsonResponse({'error': 'No account numbers found in Excel file'}, status=400)
+
+        debtors = get_debtors_collection()
+        deleted_count = 0
+        not_found_count = 0
+        errors = []
+
+        # Delete debtors and their associated data
+        for account_number in account_numbers:
+            try:
+                # Check if debtor exists
+                debtor = debtors.find_one({'account_number': account_number})
+                
+                if not debtor:
+                    not_found_count += 1
+                    continue
+
+                # Delete QR code image from S3 if exists
+                if debtor.get('qr_code_url'):
+                    try:
+                        delete_qr_code_from_s3(debtor['qr_code_url'])
+                    except Exception as e:
+                        print(f"Error deleting QR code for {account_number}: {str(e)}")
+
+                # Delete from MongoDB
+                result = debtors.delete_one({'account_number': account_number})
+                if result.deleted_count > 0:
+                    deleted_count += 1
+
+            except Exception as e:
+                errors.append(f"Error deleting {account_number}: {str(e)}")
+
+        response_data = {
+            'success': True,
+            'message': f'Deleted {deleted_count} accounts from Excel file',
+            'deleted_count': deleted_count,
+            'not_found_count': not_found_count,
+            'total_in_excel': len(account_numbers)
+        }
+
+        if errors:
+            response_data['errors'] = errors[:10]  # Limit to first 10 errors
+
+        return JsonResponse(response_data)
+
+    except Exception as e:
+        print(f"Error in bulk_delete_from_excel: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def bulk_update_from_excel(request):
+    """Update debtors based on data from Excel file"""
+    try:
+        # Verify admin token
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+        token = auth_header.split(' ')[1]
+        payload = verify_jwt_token(token)
+
+        if not payload or payload.get('role') not in ['admin', 'super_admin']:
+            return JsonResponse({'error': 'Unauthorized'}, status=401)
+
+        # Get uploaded file
+        if 'file' not in request.FILES:
+            return JsonResponse({'error': 'No file uploaded'}, status=400)
+
+        excel_file = request.FILES['file']
+        
+        # Read Excel file
+        import pandas as pd
+        import io
+        from datetime import datetime
+        
+        try:
+            df = pd.read_excel(io.BytesIO(excel_file.read()))
+        except Exception as e:
+            return JsonResponse({'error': f'Error reading Excel file: {str(e)}'}, status=400)
+
+        # Check if Account Number column exists
+        if 'Account Number' not in df.columns:
+            return JsonResponse({'error': 'Excel file must contain "Account Number" column'}, status=400)
+
+        debtors = get_debtors_collection()
+        updated_count = 0
+        not_found_count = 0
+        errors = []
+
+        # Map Excel columns to database fields
+        column_mapping = {
+            'Account Number': 'account_number',
+            'National ID': 'national_id',
+            'Name': 'name',
+            'Phone': 'phone',
+            'Email': 'email',
+            'Outstanding Balance': 'outstanding_balance',
+            'Debt Type': 'debt_type',
+            'Original Creditor': 'original_creditor',
+            'Charge-off Date': 'loan_contract_date',
+            'Case ID': 'case_id'
+        }
+
+        # Process each row
+        for index, row in df.iterrows():
+            try:
+                account_number = str(row['Account Number']).strip()
+                
+                if pd.isna(account_number) or not account_number:
+                    continue
+
+                # Check if debtor exists
+                existing_debtor = debtors.find_one({'account_number': account_number})
+                
+                if not existing_debtor:
+                    not_found_count += 1
+                    continue
+
+                # Build update document with only provided fields
+                update_doc = {}
+                
+                for excel_col, db_field in column_mapping.items():
+                    if excel_col in df.columns and excel_col != 'Account Number':
+                        value = row[excel_col]
+                        
+                        # Skip NaN values
+                        if pd.isna(value):
+                            continue
+                        
+                        # Convert to appropriate type
+                        if db_field == 'outstanding_balance':
+                            try:
+                                update_doc[db_field] = float(value)
+                            except (ValueError, TypeError):
+                                pass
+                        else:
+                            update_doc[db_field] = str(value).strip()
+
+                if not update_doc:
+                    continue
+
+                # Add updated timestamp
+                update_doc['updated_at'] = datetime.utcnow()
+
+                # Update the debtor
+                result = debtors.update_one(
+                    {'account_number': account_number},
+                    {'$set': update_doc}
+                )
+
+                if result.modified_count > 0:
+                    updated_count += 1
+
+            except Exception as e:
+                errors.append(f"Error updating row {index + 1}: {str(e)}")
+
+        response_data = {
+            'success': True,
+            'message': f'Updated {updated_count} accounts from Excel file',
+            'updated_count': updated_count,
+            'not_found_count': not_found_count,
+            'total_in_excel': len(df)
+        }
+
+        if errors:
+            response_data['errors'] = errors[:10]  # Limit to first 10 errors
+
+        return JsonResponse(response_data)
+
+    except Exception as e:
+        print(f"Error in bulk_update_from_excel: {str(e)}")
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@csrf_exempt
 @require_http_methods(["PUT", "PATCH"])
 def update_debtor(request, account_number):
     """Update a debtor (admin only)"""

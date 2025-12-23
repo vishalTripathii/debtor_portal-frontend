@@ -351,6 +351,102 @@ export const adminApi = {
     });
   },
 
+  // S3 PRE-SIGNED URL METHODS
+  getExcelUploadUrl: async (filename, operation) => {
+    const token = localStorage.getItem('token');
+    return apiCall('/admin/excel/get-upload-url/', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ filename, operation }),
+    });
+  },
+
+  uploadToS3: async (uploadUrl, file) => {
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: file,
+      headers: {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      },
+    });
+    
+    if (!response.ok) {
+      throw new Error(`S3 upload failed: ${response.status}`);
+    }
+    return response;
+  },
+
+  processExcelFromS3: async (fileKey, operation) => {
+    const token = localStorage.getItem('token');
+    return apiCall('/admin/excel/process-from-s3/', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify({ fileKey, operation }),
+    });
+  },
+
+  bulkDeleteFromExcel: async (file) => {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const url = `${API_BASE_URL}/admin/debtors/bulk-delete-excel/`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      console.error('Failed to parse response:', e);
+      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+    }
+    
+    if (!response.ok) {
+      console.error('Bulk delete error:', data);
+      throw new Error(data.error || `Bulk delete failed with status ${response.status}`);
+    }
+    return data;
+  },
+
+  bulkUpdateFromExcel: async (file) => {
+    const token = localStorage.getItem('token');
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const url = `${API_BASE_URL}/admin/debtors/bulk-update-excel/`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (e) {
+      console.error('Failed to parse response:', e);
+      throw new Error(`Server returned ${response.status}: ${response.statusText}`);
+    }
+    
+    if (!response.ok) {
+      console.error('Bulk update error:', data);
+      throw new Error(data.error || `Bulk update failed with status ${response.status}`);
+    }
+    return data;
+  },
+
   getNotifications: async () => {
     const token = localStorage.getItem('token');
     return apiCall('/admin/notifications/', {

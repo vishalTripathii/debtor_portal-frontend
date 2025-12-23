@@ -1,0 +1,8 @@
+{
+  "httpMethod": "POST",
+  "path": "/api/admin/login/",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"username\":\"admin\",\"password\":\"admin123\"}"
+}
