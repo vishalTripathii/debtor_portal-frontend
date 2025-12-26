@@ -1,0 +1,2 @@
+cd E:\Collections_Debtor_page\Collections_Debtor_page\backend
+python delete_all_data.py

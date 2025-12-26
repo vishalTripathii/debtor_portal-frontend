@@ -31,19 +31,26 @@ try:
     # Create the Lambda handler
     handler = Mangum(application, lifespan="off")
     print("[Lambda] Mangum handler created successfully")
-except Exception as e:
-    print(f"[Lambda ERROR] Failed to initialize: {str(e)}")
-    print(f"[Lambda ERROR] Traceback: {traceback.format_exc()}")
+except Exception as init_error:
+    init_error_msg = str(init_error)
+    init_error_tb = traceback.format_exc()
+    print(f"[Lambda ERROR] Failed to initialize: {init_error_msg}")
+    print(f"[Lambda ERROR] Traceback: {init_error_tb}")
     
     # Create a fallback handler that returns the error
     def handler(event, context):
         return {
             'statusCode': 500,
-            'headers': {'Content-Type': 'application/json'},
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+                'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS'
+            },
             'body': json.dumps({
                 'error': 'Lambda initialization failed',
-                'message': str(e),
-                'traceback': traceback.format_exc()
+                'message': init_error_msg,
+                'traceback': init_error_tb
             })
         }
 

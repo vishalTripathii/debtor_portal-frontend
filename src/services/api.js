@@ -8,9 +8,13 @@
 // Get API base URL from environment variable, fallback to localhost for development
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
+// Bulk operations API URL (without /api suffix - bulk Lambda is at /bulk/* not /api/bulk/*)
+const BULK_API_URL = API_BASE_URL.replace(/\/api$/, '');
+
 // Log API URL in development mode for debugging
 if (import.meta.env.DEV) {
   console.log('API Base URL:', API_BASE_URL);
+  console.log('Bulk API URL:', BULK_API_URL);
 }
 
 // Helper function to convert file to base64
@@ -394,7 +398,7 @@ export const adminApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${API_BASE_URL}/admin/debtors/bulk-delete-excel/`;
+    const url = `${BULK_API_URL}/bulk/delete-excel`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {
@@ -411,11 +415,55 @@ export const adminApi = {
       throw new Error(`Server returned ${response.status}: ${response.statusText}`);
     }
     
-    if (!response.ok) {
+    // Accept both 200 (old sync) and 202 (new async) responses
+    if (!response.ok && response.status !== 202) {
       console.error('Bulk delete error:', data);
       throw new Error(data.error || `Bulk delete failed with status ${response.status}`);
     }
     return data;
+  },
+
+  // Poll job status for async bulk operations
+  pollJobStatus: async (jobId, onProgress) => {
+    const token = localStorage.getItem('token');
+    const url = `${BULK_API_URL}/bulk/job-status/${jobId}`;
+    
+    const maxPolls = 300; // 10 minutes max (2 sec interval)
+    let pollCount = 0;
+    
+    while (pollCount < maxPolls) {
+      pollCount++;
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to get job status: ${response.status}`);
+      }
+      
+      const status = await response.json();
+      
+      // Call progress callback if provided
+      if (onProgress) {
+        onProgress(status);
+      }
+      
+      // Check if job completed or failed
+      if (status.status === 'completed') {
+        return status;
+      } else if (status.status === 'failed') {
+        throw new Error(status.error || 'Job failed');
+      }
+      
+      // Wait 2 seconds before next poll
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+    
+    throw new Error('Job status polling timeout (10 minutes)');
   },
 
   bulkUpdateFromExcel: async (file) => {
@@ -423,7 +471,7 @@ export const adminApi = {
     const formData = new FormData();
     formData.append('file', file);
 
-    const url = `${API_BASE_URL}/admin/debtors/bulk-update-excel/`;
+    const url = `${BULK_API_URL}/bulk/update-excel`;
     const response = await fetch(url, {
       method: 'POST',
       headers: {

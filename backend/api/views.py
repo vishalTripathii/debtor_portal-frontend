@@ -1446,48 +1446,86 @@ def upload_file_async(request):
         }
         jobs_collection.insert_one(job_record)
 
-        # Invoke the excelProcessor Lambda ASYNCHRONOUSLY
-        # This bypasses API Gateway's 30-second timeout limit
-        try:
-            lambda_client = boto3.client('lambda', region_name=os.environ.get('S3_REGION', 'ap-southeast-1'))
-            
-            # Get function name from environment or construct it
-            stage = os.environ.get('STAGE', 'dev')
-            processor_function_name = f"debtor-portal-api-{stage}-excelProcessor"
-            
-            # Payload for the processor
-            processor_payload = {
-                'job_id': job_id,
-                'staging_key': staging_key,
-                'file_extension': file_ext,
-                'original_filename': original_filename,
-                'created_by': payload.get('username', 'admin')
-            }
-            
-            # Invoke ASYNCHRONOUSLY (InvocationType='Event')
-            # This returns immediately and Lambda runs in background for up to 900s
-            lambda_client.invoke(
-                FunctionName=processor_function_name,
-                InvocationType='Event',  # Async invocation - returns immediately!
-                Payload=json.dumps(processor_payload)
-            )
-            
-            print(f"Async invocation triggered for job {job_id}")
-            
-        except Exception as lambda_err:
-            # If Lambda invocation fails, mark job as failed
-            print(f"Lambda invocation failed: {str(lambda_err)}")
-            jobs_collection.update_one(
-                {'job_id': job_id},
-                {'$set': {
-                    'status': 'failed',
-                    'errors': [f'Failed to start processor: {str(lambda_err)}'],
-                    'completed_at': datetime.utcnow()
-                }}
-            )
-            return JsonResponse({
-                'error': f'Failed to start background processor: {str(lambda_err)}'
-            }, status=500)
+        # Check if running locally or in Lambda environment
+        is_local = os.environ.get('USE_S3_STORAGE', 'False').lower() != 'true'
+        
+        if is_local:
+            # LOCAL MODE: Process synchronously (for testing)
+            print(f"LOCAL MODE: Processing file synchronously for job {job_id}")
+            try:
+                # Import excel_processor locally to avoid circular dependency
+                from .excel_processor import process_excel_file
+                
+                # Update status to processing
+                jobs_collection.update_one(
+                    {'job_id': job_id},
+                    {'$set': {'status': 'processing', 'started_at': datetime.utcnow()}}
+                )
+                
+                # Read file from local storage
+                file_content = storage.download_file(staging_key)
+                
+                # Process the file
+                process_excel_file(
+                    file_content=file_content,
+                    job_id=job_id,
+                    file_extension=file_ext,
+                    original_filename=original_filename
+                )
+                
+            except Exception as proc_err:
+                print(f"Local processing error: {str(proc_err)}")
+                jobs_collection.update_one(
+                    {'job_id': job_id},
+                    {'$set': {
+                        'status': 'failed',
+                        'errors': [f'Processing failed: {str(proc_err)}'],
+                        'completed_at': datetime.utcnow()
+                    }}
+                )
+        else:
+            # AWS MODE: Invoke Lambda ASYNCHRONOUSLY
+            # This bypasses API Gateway's 30-second timeout limit
+            try:
+                lambda_client = boto3.client('lambda', region_name=os.environ.get('S3_REGION', 'ap-southeast-1'))
+                
+                # Get function name from environment or construct it
+                stage = os.environ.get('STAGE', 'dev')
+                processor_function_name = f"debtor-portal-api-{stage}-excelProcessor"
+                
+                # Payload for the processor
+                processor_payload = {
+                    'job_id': job_id,
+                    'staging_key': staging_key,
+                    'file_extension': file_ext,
+                    'original_filename': original_filename,
+                    'created_by': payload.get('username', 'admin')
+                }
+                
+                # Invoke ASYNCHRONOUSLY (InvocationType='Event')
+                # This returns immediately and Lambda runs in background for up to 900s
+                lambda_client.invoke(
+                    FunctionName=processor_function_name,
+                    InvocationType='Event',  # Async invocation - returns immediately!
+                    Payload=json.dumps(processor_payload)
+                )
+                
+                print(f"Async invocation triggered for job {job_id}")
+                
+            except Exception as lambda_err:
+                # If Lambda invocation fails, mark job as failed
+                print(f"Lambda invocation failed: {str(lambda_err)}")
+                jobs_collection.update_one(
+                    {'job_id': job_id},
+                    {'$set': {
+                        'status': 'failed',
+                        'errors': [f'Failed to start processor: {str(lambda_err)}'],
+                        'completed_at': datetime.utcnow()
+                    }}
+                )
+                return JsonResponse({
+                    'error': f'Failed to start background processor: {str(lambda_err)}'
+                }, status=500)
 
         # Return immediately with job_id for status polling
         return JsonResponse({
@@ -2214,107 +2252,74 @@ def delete_debtor(request, account_number):
 @csrf_exempt
 @require_http_methods(["POST"])
 def bulk_delete_from_excel(request):
-    """Delete debtors based on account numbers from Excel file"""
-    import logging
-    logger = logging.getLogger(__name__)
+    """Delete debtors based on account numbers from Excel file - matches entire file at once"""
+    import pandas as pd
+    import io
+    import base64
+    from email import message_from_bytes
     
     try:
-        import base64
-        from io import BytesIO
-        import re
-        
-        # Log request details for debugging
-        logger.info(f"Request method: {request.method}")
-        logger.info(f"Content-Type: {request.META.get('CONTENT_TYPE', 'Not set')}")
-        logger.info(f"Content-Length: {request.META.get('CONTENT_LENGTH', 'Not set')}")
-        logger.info(f"Is base64: {request.META.get('HTTP_X_AMZN_IS_BASE64_ENCODED', 'false')}")
-        
         # Verify admin token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
-            logger.error("No valid Authorization header")
             return JsonResponse({'error': 'Unauthorized'}, status=401)
 
         token = auth_header.split(' ')[1]
         payload = verify_jwt_token(token)
 
         if not payload or payload.get('role') not in ['admin', 'super_admin']:
-            logger.error(f"Invalid role: {payload.get('role') if payload else 'None'}")
             return JsonResponse({'error': 'Unauthorized'}, status=401)
 
-        # Parse multipart data from Lambda/API Gateway
-        excel_file = None
-        content_type = request.META.get('CONTENT_TYPE', '')
+        # Detect environment: Local Django vs AWS Lambda
+        is_local = os.environ.get('USE_S3_STORAGE', 'False').lower() != 'true'
         
-        logger.info(f"Processing content type: {content_type}")
+        file_content = None
         
-        # Check if body is base64 encoded (API Gateway binary)
-        is_base64 = request.META.get('HTTP_X_AMZN_IS_BASE64_ENCODED', 'false') == 'true'
-        body = request.body
-        
-        if is_base64:
-            logger.info("Decoding base64 body")
-            body = base64.b64decode(body)
-        
-        logger.info(f"Body length: {len(body)}")
-        
-        # Parse multipart/form-data
-        if content_type.startswith('multipart/form-data'):
-            # Extract boundary from content-type
-            boundary_match = re.search(r'boundary=([^;]+)', content_type)
-            if boundary_match:
-                boundary = boundary_match.group(1).strip()
-                logger.info(f"Found boundary: {boundary}")
+        if is_local:
+            # LOCAL MODE: Use Django's request.FILES
+            if 'file' not in request.FILES:
+                return JsonResponse({'error': 'No file uploaded'}, status=400)
+            
+            excel_file = request.FILES['file']
+            file_content = excel_file.read()
+        else:
+            # AWS LAMBDA MODE: Parse base64-encoded multipart data
+            try:
+                # Get the raw body (base64 encoded in Lambda)
+                body = request.body
                 
-                # Parse multipart data manually
-                import cgi
-                from email import message_from_bytes
-                from email.policy import HTTP
+                # Check if it's base64 encoded
+                is_base64 = request.META.get('HTTP_X_AMZN_REMAPPED_CONTENT_LENGTH') or \
+                           request.content_type.startswith('multipart/form-data')
                 
-                # Add proper MIME headers
-                full_message = b'MIME-Version: 1.0\r\n'
-                full_message += f'Content-Type: {content_type}\r\n\r\n'.encode()
-                full_message += body
+                if is_base64:
+                    # Decode base64
+                    decoded_body = base64.b64decode(body)
+                else:
+                    decoded_body = body
                 
-                msg = message_from_bytes(full_message, policy=HTTP)
+                # Parse multipart data
+                content_type = request.content_type
+                if 'boundary=' in content_type:
+                    boundary = content_type.split('boundary=')[1].strip()
+                    msg = message_from_bytes(b'Content-Type: ' + content_type.encode() + b'\r\n\r\n' + decoded_body)
+                    
+                    # Extract file content from multipart
+                    for part in msg.walk():
+                        if part.get_content_disposition() == 'form-data':
+                            if 'filename' in str(part.get('Content-Disposition', '')):
+                                file_content = part.get_payload(decode=True)
+                                break
                 
-                # Find the file part
-                for part in msg.walk():
-                    if part.get_content_disposition() == 'form-data':
-                        params = part.get_params(header='content-disposition')
-                        param_dict = {k: v for k, v in params if k != ''}
-                        
-                        if 'filename' in param_dict:
-                            filename = param_dict['filename']
-                            file_content = part.get_payload(decode=True)
-                            
-                            logger.info(f"Found file: {filename}, size: {len(file_content)}")
-                            
-                            excel_file = BytesIO(file_content)
-                            excel_file.name = filename
-                            break
-        
-        if not excel_file:
-            error_msg = {
-                'error': 'No file uploaded or could not parse multipart data',
-                'debug': {
-                    'content_type': content_type,
-                    'body_length': len(body),
-                    'is_base64': is_base64,
-                    'files_count': len(request.FILES),
-                }
-            }
-            logger.error(f"Upload failed: {error_msg}")
-            return JsonResponse(error_msg, status=400)
-
-        excel_file = request.FILES['file']
+                if not file_content:
+                    return JsonResponse({'error': 'No file found in request'}, status=400)
+                    
+            except Exception as parse_err:
+                return JsonResponse({'error': f'Error parsing file upload: {str(parse_err)}'}, status=400)
         
         # Read Excel file
-        import pandas as pd
-        import io
-        
         try:
-            df = pd.read_excel(io.BytesIO(excel_file.read()))
+            df = pd.read_excel(io.BytesIO(file_content))
         except Exception as e:
             return JsonResponse({'error': f'Error reading Excel file: {str(e)}'}, status=400)
 
@@ -2379,17 +2384,14 @@ def bulk_delete_from_excel(request):
 @csrf_exempt
 @require_http_methods(["POST"])
 def bulk_update_from_excel(request):
-    """Update debtors based on data from Excel file"""
-    import logging
-    logger = logging.getLogger(__name__)
+    """Update debtors based on data from Excel file - matches by Account Number and updates fields"""
+    import pandas as pd
+    import io
+    import base64
+    from email import message_from_bytes
+    from datetime import datetime
     
     try:
-        import base64
-        from io import BytesIO
-        import re
-        
-        logger.info(f"Bulk update - Content-Type: {request.META.get('CONTENT_TYPE')}")
-        
         # Verify admin token
         auth_header = request.headers.get('Authorization')
         if not auth_header or not auth_header.startswith('Bearer '):
@@ -2401,55 +2403,56 @@ def bulk_update_from_excel(request):
         if not payload or payload.get('role') not in ['admin', 'super_admin']:
             return JsonResponse({'error': 'Unauthorized'}, status=401)
 
-        # Parse multipart data
-        excel_file = None
-        content_type = request.META.get('CONTENT_TYPE', '')
-        is_base64 = request.META.get('HTTP_X_AMZN_IS_BASE64_ENCODED', 'false') == 'true'
-        body = request.body
+        # Detect environment: Local Django vs AWS Lambda
+        is_local = os.environ.get('USE_S3_STORAGE', 'False').lower() != 'true'
         
-        if is_base64:
-            body = base64.b64decode(body)
+        file_content = None
         
-        if content_type.startswith('multipart/form-data'):
-            boundary_match = re.search(r'boundary=([^;]+)', content_type)
-            if boundary_match:
-                from email import message_from_bytes
-                from email.policy import HTTP
+        if is_local:
+            # LOCAL MODE: Use Django's request.FILES
+            if 'file' not in request.FILES:
+                return JsonResponse({'error': 'No file uploaded'}, status=400)
+            
+            excel_file = request.FILES['file']
+            file_content = excel_file.read()
+        else:
+            # AWS LAMBDA MODE: Parse base64-encoded multipart data
+            try:
+                # Get the raw body (base64 encoded in Lambda)
+                body = request.body
                 
-                full_message = b'MIME-Version: 1.0\r\n' + f'Content-Type: {content_type}\r\n\r\n'.encode() + body
-                msg = message_from_bytes(full_message, policy=HTTP)
+                # Check if it's base64 encoded
+                is_base64 = request.META.get('HTTP_X_AMZN_REMAPPED_CONTENT_LENGTH') or \
+                           request.content_type.startswith('multipart/form-data')
                 
-                for part in msg.walk():
-                    if part.get_content_disposition() == 'form-data':
-                        params = part.get_params(header='content-disposition')
-                        param_dict = {k: v for k, v in params if k != ''}
-                        if 'filename' in param_dict:
-                            file_content = part.get_payload(decode=True)
-                            excel_file = BytesIO(file_content)
-                            excel_file.name = param_dict['filename']
-                            break
-        
-        if not excel_file:
-            return JsonResponse({'error': 'No file uploaded'}, status=400)
-                            BytesIO(file_content),
-                            'file',
-                            filename,
-                            part.get_content_type(),
-                            len(file_content),
-                            None
-                        )
-                        break
-        
-        if not excel_file:
-            return JsonResponse({'error': 'No file uploaded'}, status=400)
+                if is_base64:
+                    # Decode base64
+                    decoded_body = base64.b64decode(body)
+                else:
+                    decoded_body = body
+                
+                # Parse multipart data
+                content_type = request.content_type
+                if 'boundary=' in content_type:
+                    boundary = content_type.split('boundary=')[1].strip()
+                    msg = message_from_bytes(b'Content-Type: ' + content_type.encode() + b'\r\n\r\n' + decoded_body)
+                    
+                    # Extract file content from multipart
+                    for part in msg.walk():
+                        if part.get_content_disposition() == 'form-data':
+                            if 'filename' in str(part.get('Content-Disposition', '')):
+                                file_content = part.get_payload(decode=True)
+                                break
+                
+                if not file_content:
+                    return JsonResponse({'error': 'No file found in request'}, status=400)
+                    
+            except Exception as parse_err:
+                return JsonResponse({'error': f'Error parsing file upload: {str(parse_err)}'}, status=400)
         
         # Read Excel file
-        import pandas as pd
-        import io
-        from datetime import datetime
-        
         try:
-            df = pd.read_excel(io.BytesIO(excel_file.read()))
+            df = pd.read_excel(io.BytesIO(file_content))
         except Exception as e:
             return JsonResponse({'error': f'Error reading Excel file: {str(e)}'}, status=400)
 
@@ -4190,16 +4193,22 @@ def get_upload_history(request):
             record['uploaded_at'] = record.get('created_at')
             record['uploaded_by'] = record.get('created_by', 'Unknown')
             
-            # File size from processing_jobs
-            record['file_size'] = record.get('file_size', 0)
+            # File size from processing_jobs (ensure it's an integer)
+            record['file_size'] = int(record.get('file_size', 0) or 0)
             
             # Record counts from processing_jobs
-            record['total_records'] = record.get('total_records', 0)
-            record['inserted_count'] = record.get('inserted_count', 0)
-            record['updated_count'] = record.get('updated_count', 0)
+            record['total_records'] = int(record.get('total_records', 0) or 0)
+            record['inserted_count'] = int(record.get('inserted_count', 0) or 0)
+            record['updated_count'] = int(record.get('updated_count', 0) or 0)
             
-            # Status from processing_jobs
-            record['status'] = record.get('status', 'unknown')
+            # Status from processing_jobs - map 'completed' to 'success' for frontend
+            db_status = record.get('status', 'unknown')
+            if db_status == 'completed':
+                record['status'] = 'success'
+            elif db_status == 'failed':
+                record['status'] = 'error'
+            else:
+                record['status'] = db_status
             
             # Format datetime for JSON serialization
             if 'uploaded_at' in record and record['uploaded_at']:

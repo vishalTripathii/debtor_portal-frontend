@@ -84,12 +84,17 @@ provider:
             - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-qrProcessor
             - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-api
             - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-email
+            - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-bulkOperations
 
 custom:
   pythonRequirements:
     dockerizePip: true
     slim: true
     strip: true
+    pipCmdExtraArgs:
+      - --platform manylinux2014_x86_64
+      - --only-binary=:all:
+    layer: false
 
 plugins:
   - serverless-python-requirements
@@ -158,8 +163,41 @@ functions:
           method: ANY
           cors: true
 
+  # Bulk Operations (Standalone - NO Django)
+  # Direct MongoDB operations for bulk delete/update
+  bulkOperations:
+    handler: bulk_operations_handler.handler
+    runtime: python3.12
+    timeout: 900
+    memorySize: 10240
+    ephemeralStorageSize: 10240
+    environment:
+      MONGODB_URI: ${self:provider.environment.MONGODB_URI}
+    layers:
+      # AWS Data Wrangler layer includes pandas, pymongo, and other data processing libraries
+      - arn:aws:lambda:${self:provider.region}:336392948345:layer:AWSSDKPandas-Python312:13
+    events:
+      - http:
+          path: /bulk/delete-excel
+          method: POST
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - Authorization
+            allowCredentials: false
+      - http:
+          path: /bulk/update-excel
+          method: POST
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+              - Authorization
+            allowCredentials: false
+
 package:
-  individually: false
+  individually: true
   patterns:
     - '!node_modules/**'
     - '!.git/**'
@@ -171,6 +209,7 @@ package:
     - '!env/**'
     - '!.serverless/**'
     - '!layers/**'
+    - '!bulk_ops_layer/**'
     # Include node_modules for email Lambda
     - 'node_modules/nodemailer/**'
     - 'email_lambda.js'

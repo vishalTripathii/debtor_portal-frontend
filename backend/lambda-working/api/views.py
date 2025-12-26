@@ -4069,16 +4069,22 @@ def get_upload_history(request):
             record['uploaded_at'] = record.get('created_at')
             record['uploaded_by'] = record.get('created_by', 'Unknown')
             
-            # File size from processing_jobs
-            record['file_size'] = record.get('file_size', 0)
+            # File size from processing_jobs (ensure it's an integer)
+            record['file_size'] = int(record.get('file_size', 0) or 0)
             
             # Record counts from processing_jobs
-            record['total_records'] = record.get('total_records', 0)
-            record['inserted_count'] = record.get('inserted_count', 0)
-            record['updated_count'] = record.get('updated_count', 0)
+            record['total_records'] = int(record.get('total_records', 0) or 0)
+            record['inserted_count'] = int(record.get('inserted_count', 0) or 0)
+            record['updated_count'] = int(record.get('updated_count', 0) or 0)
             
-            # Status from processing_jobs
-            record['status'] = record.get('status', 'unknown')
+            # Status from processing_jobs - map 'completed' to 'success' for frontend
+            db_status = record.get('status', 'unknown')
+            if db_status == 'completed':
+                record['status'] = 'success'
+            elif db_status == 'failed':
+                record['status'] = 'error'
+            else:
+                record['status'] = db_status
             
             # Format datetime for JSON serialization
             if 'uploaded_at' in record and record['uploaded_at']:

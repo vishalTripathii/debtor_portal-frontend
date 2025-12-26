@@ -2373,8 +2373,11 @@ const DebtorPortal = () => {
               label={t('needInstalmentPlan')}
               onChange={(e) => {
                 setInstalmentPlan(e.target.value);
-                // Clear the reason field when switching away from "Others" (- -)
+                // When selecting non-Others option, auto-set reason to 'Other' so backend gets a value
+                // When selecting Others (- -), clear the reason so user must select one
                 if (e.target.value !== 'Others') {
+                  setNonPaymentReason('Other');
+                } else {
                   setNonPaymentReason('');
                 }
               }}
@@ -2516,7 +2519,11 @@ const DebtorPortal = () => {
             disabled={
               loading || 
               !instalmentPlan || 
-              (instalmentPlan === 'Others' && !nonPaymentReason)
+              (instalmentPlan === 'Others' && !nonPaymentReason) ||
+              !preferredContactDate ||
+              !preferredContactTime ||
+              !preferredContactMethod ||
+              !preferredContactValue
             }
           >
             {loading ? t('submitting') : t('submitRequest')}

@@ -1,0 +1,5 @@
+# Main Django app requirements
+requirements.txt
+
+# Bulk operations Lambda (separate)
+bulk_operations_requirements.txt

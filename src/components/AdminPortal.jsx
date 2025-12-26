@@ -1528,7 +1528,46 @@ const AdminPortal = () => {
         
         const response = await adminApi.bulkDeleteFromExcel(file);
         
-        if (response.success) {
+        // Check if async processing (job_id present)
+        if (response.job_id) {
+          showNotification(
+            `Started processing ${response.total_records} records. Please wait...`,
+            'info',
+            3000
+          );
+          
+          // Poll for job status with progress updates
+          const finalStatus = await adminApi.pollJobStatus(response.job_id, (status) => {
+            const progress = Math.round((status.processed_records / status.total_records) * 100);
+            console.log(`Progress: ${progress}% (${status.processed_records}/${status.total_records})`);
+            
+            // Update notification every 20% progress
+            if (progress % 20 === 0 && progress > 0) {
+              showNotification(
+                `Processing: ${progress}% complete (${status.processed_records}/${status.total_records})`,
+                'info',
+                2000
+              );
+            }
+          });
+          
+          // Job completed - show final results
+          setUploadResult({
+            success: true,
+            message: `Deleted ${finalStatus.deleted_count} accounts from Excel file\n` +
+                    `Not found: ${finalStatus.not_found_count}\n` +
+                    `Total processed: ${finalStatus.total_records}`,
+            deleted_count: finalStatus.deleted_count,
+            not_found_count: finalStatus.not_found_count
+          });
+          
+          showNotification(
+            `✓ Completed! Deleted ${finalStatus.deleted_count} accounts (${finalStatus.not_found_count} not found)`,
+            'success',
+            8000
+          );
+        } else if (response.success) {
+          // Old sync response format (backward compatibility)
           setUploadResult({
             success: true,
             message: `Deleted ${response.deleted_count} accounts from Excel file\n` +
@@ -2174,11 +2213,16 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                       label={t('uploadMode') || 'Upload Mode'}
                       onChange={(e) => setUploadMode(e.target.value)}
                     >
+                      {/* Add New - commented out
                       <MenuItem value="">
                         <Box display="flex" alignItems="center" gap={1}>
                           <UploadIcon fontSize="small" />
                           {t('addNew') || 'Add New Accounts'}
                         </Box>
+                      </MenuItem>
+                      */}
+                      <MenuItem value="">
+                        <em>{t('selectMode') || 'Select Mode'}</em>
                       </MenuItem>
                       <MenuItem value="delete">
                         <Box display="flex" alignItems="center" gap={1}>
@@ -2186,12 +2230,14 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                           {t('bulkDelete') || 'Bulk Delete'}
                         </Box>
                       </MenuItem>
+                      {/* Bulk Update - commented out
                       <MenuItem value="update">
                         <Box display="flex" alignItems="center" gap={1}>
                           <EditIcon fontSize="small" color="primary" />
                           {t('bulkUpdate') || 'Bulk Update'}
                         </Box>
                       </MenuItem>
+                      */}
                     </Select>
                   </FormControl>
                 </Box>
@@ -3152,14 +3198,19 @@ ACC-10002,NID-987654321,XYZ Finance,8750.50,Personal Loan,2024-02-20,Jane Doe,+1
                         width: 110,
                         headerAlign: 'center',
                         align: 'center',
-                        renderCell: (params) => (
-                          <Chip
-                            label={params.value}
-                            size="small"
-                            color={params.value === 'success' ? 'success' : 'error'}
-                            icon={params.value === 'success' ? <SuccessIcon /> : <ErrorIcon />}
-                          />
-                        ),
+                        renderCell: (params) => {
+                          // Map 'error' status to 'Deleted' for display
+                          const displayStatus = params.value === 'error' ? 'Deleted' : params.value;
+                          const isSuccess = params.value === 'success';
+                          return (
+                            <Chip
+                              label={displayStatus}
+                              size="small"
+                              color={isSuccess ? 'success' : 'error'}
+                              icon={isSuccess ? <SuccessIcon /> : <ErrorIcon />}
+                            />
+                          );
+                        },
                       }] : []),
                       ...(systemSettings?.table_actions?.upload_history !== false
                         ? [
