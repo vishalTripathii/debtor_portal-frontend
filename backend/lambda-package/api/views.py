@@ -130,6 +130,108 @@ def send_otp_via_lambda(email, otp, name="Customer"):
         traceback.print_exc()
         return False
 
+
+def send_payment_notification_via_lambda(debtor_data, payment_data):
+    """
+    Send payment notification via email Lambda function
+    """
+    try:
+        lambda_client = boto3.client('lambda', region_name=os.getenv('S3_REGION', 'ap-southeast-1'))
+        
+        payload = {
+            'httpMethod': 'POST',
+            'body': json.dumps({
+                'action': 'send-payment-notification',
+                'account_number': debtor_data.get('account_number', 'N/A'),
+                'debtor_name': debtor_data.get('name', 'N/A'),
+                'debtor_email': debtor_data.get('email', 'N/A'),
+                'debtor_phone': debtor_data.get('phone', 'N/A'),
+                'debtor_national_id': debtor_data.get('national_id', 'N/A'),
+                'original_creditor': debtor_data.get('original_creditor', 'N/A'),
+                'debt_type': debtor_data.get('debt_type', 'N/A'),
+                'outstanding_balance': debtor_data.get('outstanding_balance', 0),
+                'payment_type': payment_data.get('payment_type', 'N/A'),
+                'payment_amount': payment_data.get('payment_amount', 0),
+                'transaction_number': payment_data.get('transaction_number', 'N/A'),
+                'receipt_filename': payment_data.get('receipt_filename', '')
+            })
+        }
+        
+        response = lambda_client.invoke(
+            FunctionName=f"debtor-portal-api-{os.getenv('STAGE', 'dev')}-email",
+            InvocationType='RequestResponse',
+            Payload=json.dumps(payload)
+        )
+        
+        response_payload = json.loads(response['Payload'].read())
+        response_body = json.loads(response_payload.get('body', '{}'))
+        
+        if response_body.get('success'):
+            print(f"✅ Payment notification sent successfully via Lambda to hello@poweramc.com")
+            return True
+        else:
+            print(f"❌ Email Lambda failed: {response_body.get('error', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Failed to send payment notification via Lambda: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def send_support_request_via_lambda(debtor_data, request_data):
+    """
+    Send support request notification via email Lambda function
+    """
+    try:
+        lambda_client = boto3.client('lambda', region_name=os.getenv('S3_REGION', 'ap-southeast-1'))
+        
+        payload = {
+            'httpMethod': 'POST',
+            'body': json.dumps({
+                'action': 'send-support-request',
+                'account_number': debtor_data.get('account_number', 'N/A'),
+                'debtor_name': debtor_data.get('name', 'N/A'),
+                'debtor_email': debtor_data.get('email', 'N/A'),
+                'debtor_phone': debtor_data.get('phone', 'N/A'),
+                'debtor_national_id': debtor_data.get('national_id', 'N/A'),
+                'original_creditor': debtor_data.get('original_creditor', 'N/A'),
+                'debt_type': debtor_data.get('debt_type', 'N/A'),
+                'outstanding_balance': debtor_data.get('outstanding_balance', 0),
+                'reason': request_data.get('reason', 'Not specified'),
+                'notes': request_data.get('notes', ''),
+                'instalment_plan': request_data.get('instalment_plan', ''),
+                'preferred_contact_date': request_data.get('preferred_contact_date', ''),
+                'preferred_contact_time': request_data.get('preferred_contact_time', ''),
+                'preferred_contact_method': request_data.get('preferred_contact_method', ''),
+                'preferred_contact_value': request_data.get('preferred_contact_value', '')
+            })
+        }
+        
+        response = lambda_client.invoke(
+            FunctionName=f"debtor-portal-api-{os.getenv('STAGE', 'dev')}-email",
+            InvocationType='RequestResponse',
+            Payload=json.dumps(payload)
+        )
+        
+        response_payload = json.loads(response['Payload'].read())
+        response_body = json.loads(response_payload.get('body', '{}'))
+        
+        if response_body.get('success'):
+            print(f"✅ Support request sent successfully via Lambda to hello@poweramc.com")
+            return True
+        else:
+            print(f"❌ Email Lambda failed: {response_body.get('error', 'Unknown error')}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Failed to send support request via Lambda: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 def format_date_only(value):
     """
     Format date value to only show date (YYYY-MM-DD), removing any time component.
@@ -3213,28 +3315,24 @@ def send_payment_interest_notification(request):
             timestamp=get_bangkok_time()
         )
 
-        # Try to send email
+        # Try to send email via Lambda
         try:
-            # Debug: Log email settings
-            print(f"=== EMAIL DEBUG ===")
-            print(f"EMAIL_HOST: {settings.EMAIL_HOST}")
-            print(f"EMAIL_PORT: {settings.EMAIL_PORT}")
-            print(f"EMAIL_USE_TLS: {settings.EMAIL_USE_TLS}")
-            print(f"EMAIL_HOST_USER: {settings.EMAIL_HOST_USER}")
-            print(f"DEFAULT_FROM_EMAIL: {settings.DEFAULT_FROM_EMAIL}")
-            print(f"Recipient: {recipient_email}")
-            print(f"===================")
-
-            send_mail(
-                subject=subject,
-                message=email_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[recipient_email],
-                fail_silently=False,
-            )
-            email_sent = True
-            email_message = f'Email notification sent to {recipient_email}'
-            print(f"Email sent successfully to {recipient_email}")
+            payment_data = {
+                'payment_type': payment_type,
+                'payment_amount': payment_amount,
+                'transaction_number': transaction_number,
+                'receipt_filename': receipt_filename
+            }
+            
+            email_sent = send_payment_notification_via_lambda(debtor, payment_data)
+            
+            if email_sent:
+                email_message = 'Email notification sent to hello@poweramc.com'
+                print(f"✅ Payment notification sent to hello@poweramc.com")
+            else:
+                email_message = 'Email could not be sent via Lambda'
+                print(f"❌ Payment notification failed")
+                
         except Exception as email_error:
             # If email fails, log but don't fail the request
             email_sent = False
@@ -3414,17 +3512,27 @@ def send_not_ready_to_pay_notification(request):
         if not recipient_email:
             recipient_email = getattr(settings, 'COLLECTIONS_TEAM_EMAIL', 'collections@example.com')
 
-        # Try to send email
+        # Try to send email via Lambda
         try:
-            send_mail(
-                subject=subject,
-                message=email_body,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[recipient_email],
-                fail_silently=False,
-            )
-            email_sent = True
-            email_message = f'Email notification sent to {recipient_email}'
+            request_data = {
+                'reason': reason,
+                'notes': notes,
+                'instalment_plan': instalment_plan,
+                'preferred_contact_date': preferred_contact_date,
+                'preferred_contact_time': preferred_contact_time,
+                'preferred_contact_method': preferred_contact_method,
+                'preferred_contact_value': preferred_contact_value
+            }
+            
+            email_sent = send_support_request_via_lambda(debtor, request_data)
+            
+            if email_sent:
+                email_message = 'Email notification sent to hello@poweramc.com'
+                print(f"✅ Support request sent to hello@poweramc.com")
+            else:
+                email_message = 'Email could not be sent via Lambda'
+                print(f"❌ Support request failed")
+                
         except Exception as email_error:
             email_sent = False
             email_message = f'Email could not be sent: {str(email_error)}'

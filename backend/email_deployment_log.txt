@@ -1,0 +1,50 @@
+============================================
+📧 EMAIL LAMBDA DEPLOYMENT (via Serverless)
+============================================
+Stage: dev
+Region: ap-southeast-1
+Date: Fri Dec 26 19:06:15 IST 2025
+============================================
+
+🔐 Step 1: Verifying AWS credentials...
+✅ Authenticated as: power-amc
+✅ Account: 805171368688
+
+🔍 Step 2: Checking Serverless Framework...
+✅ Framework Core: 3.40.0
+
+📦 Step 3: Checking node_modules...
+✅ nodemailer is installed
+
+💾 Step 4: Creating backup...
+✅ Backup created: email_lambda_backup_20251226_190622.js
+
+📋 Step 5: Deployment Summary...
+
+   File to deploy: email_lambda.js
+   Changes:
+   ✅ SMTP credentials updated to digital.marketing@welleazy.in
+   ✅ Added payment notification handler (send-payment-notification)
+   ✅ Added support request handler (send-support-request)
+   ✅ All emails go to hello@poweramc.com
+
+   Other Lambda functions:
+   ✅ api (Django) - NOT MODIFIED
+   ✅ excelProcessor - NOT MODIFIED
+   ✅ qrProcessor - NOT MODIFIED
+   ✅ bulkOperations - NOT MODIFIED
+
+🚀 Step 6: Deploying email Lambda function...
+
+Running: serverless deploy function -f email --stage dev --region ap-southeast-1
+
+
+Warning: Invalid configuration encountered
+  at 'functions.bulkOperations.runtime': must be equal to one of the allowed values [dotnet6, go1.x, java21, java17, java11, java8, java8.al2, nodejs14.x, nodejs16.x, nodejs18.x, nodejs20.x, provided, provided.al2, provided.al2023, python3.7, python3.8, python3.9, python3.10, python3.11, ruby2.7, ruby3.2]
+  at 'org': must match pattern "^[a-z0-9]{5,39}$"
+
+Learn more about configuration validation here: http://slss.io/configuration-validation
+
+Deploying function email to stage dev (ap-southeast-1)
+
+Excluding development dependencies for function "email"

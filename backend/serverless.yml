@@ -2,7 +2,7 @@ service: debtor-portal-api
 
 frameworkVersion: '>=3.0.0'
 
-org: none
+# org: none  # Disabled - not using Serverless Dashboard
 
 provider:
   name: aws
@@ -167,7 +167,7 @@ functions:
   # Direct MongoDB operations for bulk delete/update
   bulkOperations:
     handler: bulk_operations_handler.handler
-    runtime: python3.12
+    runtime: python3.11  # Changed from 3.12 to 3.11 for compatibility
     timeout: 900
     memorySize: 10240
     ephemeralStorageSize: 10240
@@ -175,7 +175,7 @@ functions:
       MONGODB_URI: ${self:provider.environment.MONGODB_URI}
     layers:
       # AWS Data Wrangler layer includes pandas, pymongo, and other data processing libraries
-      - arn:aws:lambda:${self:provider.region}:336392948345:layer:AWSSDKPandas-Python312:13
+      - arn:aws:lambda:${self:provider.region}:336392948345:layer:AWSSDKPandas-Python311:8
     events:
       - http:
           path: /bulk/delete-excel

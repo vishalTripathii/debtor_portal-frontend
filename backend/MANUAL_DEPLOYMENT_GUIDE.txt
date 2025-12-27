@@ -1,0 +1,297 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║           📧 MANUAL EMAIL LAMBDA DEPLOYMENT GUIDE                          ║
+║           Step-by-step instructions for AWS Console                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+SITUATION:
+- We've successfully updated environment variables ✅
+- IAM user has restricted Lambda code update permissions ❌
+- Need to manually deploy the new email_lambda.js code via AWS Console
+
+WHAT'S READY:
+✅ Updated email_lambda.js with 3 email handlers (OTP, Payment, Support)
+✅ Environment variables already configured with digital.marketing@welleazy.in
+✅ Deployment package created at: /Users/apple/debtor_portal-frontend/backend/.email_deploy_minimal/email.zip
+
+════════════════════════════════════════════════════════════════════════════
+
+🚀 STEP-BY-STEP DEPLOYMENT INSTRUCTIONS
+
+════════════════════════════════════════════════════════════════════════════
+
+STEP 1: Open AWS Lambda Console
+════════════════════════════════════════════════════════════════════════════
+
+1. Go to: https://ap-southeast-1.console.aws.amazon.com/lambda/home?region=ap-southeast-1
+
+2. OR Go to: https://console.aws.amazon.com/lambda
+   Then select region: ap-southeast-1 (Singapore) from top-right dropdown
+
+3. You should see your AWS Account: 805171368688
+
+
+════════════════════════════════════════════════════════════════════════════
+
+STEP 2: Find the Email Lambda Function
+════════════════════════════════════════════════════════════════════════════
+
+1. In the Lambda console, look for the Functions list
+
+2. Search or scroll to find:
+   📧 debtor-portal-api-dev-email
+
+3. Click on the function name to open it
+
+
+════════════════════════════════════════════════════════════════════════════
+
+STEP 3: Upload the New Code
+════════════════════════════════════════════════════════════════════════════
+
+METHOD A - Upload ZIP directly (RECOMMENDED):
+─────────────────────────────────────────────
+
+1. In the function page, scroll down to "Code source" section
+
+2. Click the "Upload from" dropdown button (orange button)
+
+3. Select ".zip file"
+
+4. Click "Upload" button
+
+5. Navigate to and select:
+   /Users/apple/debtor_portal-frontend/backend/.email_deploy_minimal/email.zip
+
+6. Click "Open"
+
+7. Wait for upload to complete (should see "Changes deployed" message)
+
+8. Click "Deploy" button if it appears
+
+
+METHOD B - Upload from S3 (Alternative):
+─────────────────────────────────────────
+
+1. The file is already uploaded to S3:
+   s3://power-amc-debtor-media-dev/lambda-deployments/email-lambda-20251226_192652.zip
+
+2. In function page, click "Upload from" → "Amazon S3 location"
+
+3. Enter S3 object URL:
+   s3://power-amc-debtor-media-dev/lambda-deployments/email-lambda-20251226_192652.zip
+
+4. Click "Save"
+
+
+════════════════════════════════════════════════════════════════════════════
+
+STEP 4: Verify Environment Variables (Should Already Be Set)
+════════════════════════════════════════════════════════════════════════════
+
+1. In the function page, click on "Configuration" tab
+
+2. Click "Environment variables" on the left sidebar
+
+3. Verify these are set correctly:
+
+   ✅ EMAIL_HOST = smtpout.secureserver.net
+   ✅ EMAIL_PORT = 587
+   ✅ EMAIL_USE_TLS = True
+   ✅ EMAIL_USE_SSL = False
+   ✅ EMAIL_HOST_USER = digital.marketing@welleazy.in
+   ✅ EMAIL_HOST_PASSWORD = Welcome@123
+   ✅ DEFAULT_FROM_EMAIL = digital.marketing@welleazy.in
+
+4. If any are wrong, click "Edit" and fix them
+
+
+════════════════════════════════════════════════════════════════════════════
+
+STEP 5: Test the Deployment
+════════════════════════════════════════════════════════════════════════════
+
+TEST 1: SMTP Connection Test
+─────────────────────────────
+
+1. In function page, click "Test" tab
+
+2. Click "Create new event"
+
+3. Event name: test-smtp-connection
+
+4. Paste this JSON:
+   {
+     "httpMethod": "POST",
+     "body": "{\"action\":\"test\"}"
+   }
+
+5. Click "Save"
+
+6. Click "Test" button
+
+7. Check response - should see:
+   {
+     "statusCode": 200,
+     "body": "{\"success\":true,\"message\":\"Email service is working correctly\"}"
+   }
+
+
+TEST 2: OTP Email Test
+──────────────────────
+
+1. Click "Test" tab
+
+2. Create new event: test-otp-email
+
+3. Paste this JSON:
+   {
+     "httpMethod": "POST",
+     "body": "{\"action\":\"send-otp\",\"email\":\"tilakagrawal7777@gmail.com\",\"otp\":\"123456\",\"name\":\"Test User\"}"
+   }
+
+4. Click "Save" and "Test"
+
+5. Check response - should see success with messageId
+
+6. ✅ CHECK YOUR EMAIL: tilakagrawal7777@gmail.com should receive OTP email
+
+
+TEST 3: Payment Notification Test
+──────────────────────────────────
+
+1. Create new event: test-payment-notification
+
+2. Paste this JSON:
+   {
+     "httpMethod": "POST",
+     "body": "{\"action\":\"send-payment-notification\",\"account_number\":\"TEST-123\",\"debtor_name\":\"Test Debtor\",\"debtor_email\":\"tilakagrawal7777@gmail.com\",\"debtor_phone\":\"+66 123456789\",\"payment_amount\":\"25000\",\"transaction_number\":\"TXN-TEST-001\"}"
+   }
+
+3. Click "Save" and "Test"
+
+4. ✅ CHECK: hello@poweramc.com should receive payment notification
+
+
+TEST 4: Support Request Test
+─────────────────────────────
+
+1. Create new event: test-support-request
+
+2. Paste this JSON:
+   {
+     "httpMethod": "POST",
+     "body": "{\"action\":\"send-support-request\",\"account_number\":\"TEST-123\",\"debtor_name\":\"Test Debtor\",\"debtor_email\":\"tilakagrawal7777@gmail.com\",\"reason\":\"Financial difficulty\",\"notes\":\"Need payment plan\"}"
+   }
+
+3. Click "Save" and "Test"
+
+4. ✅ CHECK: hello@poweramc.com should receive support request
+
+
+════════════════════════════════════════════════════════════════════════════
+
+STEP 6: Verify Deployment
+════════════════════════════════════════════════════════════════════════════
+
+1. In function "Code" tab, you should see:
+   - email_lambda.js
+   - node_modules/
+   - package.json
+
+2. Open email_lambda.js and verify it contains:
+   - Line ~141: } else if (action === 'send-payment-notification') {
+   - Line ~310: } else if (action === 'send-support-request') {
+
+3. Check "Monitor" tab → "Logs" → "View CloudWatch logs" to see execution logs
+
+
+════════════════════════════════════════════════════════════════════════════
+
+🎯 SUCCESS CRITERIA
+════════════════════════════════════════════════════════════════════════════
+
+✅ Lambda code updated with new email_lambda.js
+✅ SMTP connection test passes
+✅ OTP email received at tilakagrawal7777@gmail.com
+✅ Payment notification received at hello@poweramc.com
+✅ Support request received at hello@poweramc.com
+✅ No errors in CloudWatch logs
+
+
+════════════════════════════════════════════════════════════════════════════
+
+⚠️  IMPORTANT NOTES
+════════════════════════════════════════════════════════════════════════════
+
+1. The ZIP file is ready at:
+   /Users/apple/debtor_portal-frontend/backend/.email_deploy_minimal/email.zip
+   Size: 7.3MB
+   
+2. This ONLY updates the email Lambda function
+   Other Lambda functions remain unchanged ✅
+
+3. After deployment, Django backend still needs to be deployed separately
+   (The views.py changes for payment/support notifications)
+
+4. Environment variables are ALREADY updated ✅
+   You only need to upload the code
+
+5. If upload fails due to permissions, ask administrator to grant
+   lambda:UpdateFunctionCode permission temporarily
+
+
+════════════════════════════════════════════════════════════════════════════
+
+📞 QUICK VERIFICATION COMMANDS (Optional)
+════════════════════════════════════════════════════════════════════════════
+
+After manual deployment, run these in terminal to verify:
+
+# Check if code was updated
+aws lambda get-function --function-name debtor-portal-api-dev-email --region ap-southeast-1 --query 'Configuration.{LastModified:LastModified,CodeSize:CodeSize}' --output table
+
+# Test SMTP connection
+aws lambda invoke --function-name debtor-portal-api-dev-email --region ap-southeast-1 --payload '{"httpMethod":"POST","body":"{\"action\":\"test\"}"}' --cli-binary-format raw-in-base64-out /tmp/verify.json && cat /tmp/verify.json
+
+
+════════════════════════════════════════════════════════════════════════════
+
+🆘 TROUBLESHOOTING
+════════════════════════════════════════════════════════════════════════════
+
+Problem: "Access Denied" when uploading
+Solution: 
+- Ask AWS administrator to temporarily grant lambda:UpdateFunctionCode
+- OR use AWS Console login with higher permissions
+- OR share the email.zip file with someone who has permissions
+
+Problem: Code uploaded but tests failing
+Solution:
+- Check CloudWatch logs for detailed error
+- Verify environment variables are correct
+- Check node_modules/nodemailer is included in ZIP
+
+Problem: Emails not sending
+Solution:
+- Verify EMAIL_HOST_PASSWORD = Welcome@123 (case sensitive)
+- Check SMTP settings: port 587, TLS enabled
+- Test from different email client to rule out server issues
+
+
+════════════════════════════════════════════════════════════════════════════
+
+💡 NEXT STEPS AFTER EMAIL LAMBDA DEPLOYMENT
+════════════════════════════════════════════════════════════════════════════
+
+1. Deploy Django backend (lambda-package/api/views.py changes)
+2. Test full flow: Debtor portal → OTP → Login → Payment submission
+3. Verify hello@poweramc.com receives notifications
+
+
+════════════════════════════════════════════════════════════════════════════
+
+Ready to proceed? Follow the steps above in AWS Console!
+
+If you encounter any issues, let me know the exact error message.
+
+════════════════════════════════════════════════════════════════════════════

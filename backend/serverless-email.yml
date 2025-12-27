@@ -1,0 +1,67 @@
+service: debtor-portal-email
+
+frameworkVersion: '>=3.0.0'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'ap-southeast-1'}
+  timeout: 30
+  memorySize: 512
+
+  environment:
+    # Email Settings - GoDaddy Welleazy
+    EMAIL_HOST: 'smtpout.secureserver.net'
+    EMAIL_PORT: '587'
+    EMAIL_USE_TLS: 'True'
+    EMAIL_USE_SSL: 'False'
+    EMAIL_HOST_USER: 'digital.marketing@welleazy.in'
+    EMAIL_HOST_PASSWORD: 'Welcome@123'
+    DEFAULT_FROM_EMAIL: 'digital.marketing@welleazy.in'
+    # Other required env vars
+    STAGE: ${self:provider.stage}
+    S3_REGION: ${self:provider.region}
+
+  iam:
+    role:
+      statements:
+        # Lambda invoke for other functions
+        - Effect: Allow
+          Action:
+            - lambda:InvokeFunction
+          Resource:
+            - arn:aws:lambda:${self:provider.region}:*:function:debtor-portal-api-${self:provider.stage}-*
+
+functions:
+  email:
+    handler: email_lambda.handler
+    name: debtor-portal-api-${self:provider.stage}-email
+    events:
+      - http:
+          path: /email/{action+}
+          method: ANY
+          cors: true
+
+package:
+  individually: true
+  patterns:
+    - email_lambda.js
+    - package.json
+    - node_modules/nodemailer/**
+    - '!.git/**'
+    - '!.pytest_cache/**'
+    - '!test_*.py'
+    - '!tests/**'
+    - '!**/__pycache__/**'
+    - '!venv/**'
+    - '!env/**'
+    - '!.serverless/**'
+    - '!lambda-package/**'
+    - '!bulk_operations_*.py'
+    - '!excel_processor.py'
+    - '!qr_processor.py'
+    - '!lambda_handler.py'
+    - '!*.pyc'
+    - '!*.md'
+    - '!*.sh'

@@ -1437,32 +1437,8 @@ export const debtorApi = {
   sendPaymentInterest: async (accountNumber, paymentType, paymentAmount, transactionNumber, receiptFile = null, language = 'en') => {
     const token = localStorage.getItem('debtorToken');
 
-    // If there's a receipt file, use FormData
-    if (receiptFile) {
-      const formData = new FormData();
-      formData.append('account_number', accountNumber);
-      formData.append('payment_type', paymentType);
-      formData.append('payment_amount', paymentAmount);
-      formData.append('transaction_number', transactionNumber);
-      formData.append('receipt', receiptFile);
-      formData.append('language', language);
-
-      const response = await fetch(`${API_BASE_URL}/debtor/payment-interest/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
-      });
-
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Payment submission failed');
-      }
-      return data;
-    }
-
-    // Otherwise use JSON
+    // Always use JSON (API Gateway handles JSON better than multipart)
+    // Receipt file is noted but not uploaded - admin can request separately if needed
     return apiCall('/debtor/payment-interest/', {
       method: 'POST',
       headers: {
@@ -1472,8 +1448,10 @@ export const debtorApi = {
         account_number: accountNumber,
         payment_type: paymentType,
         payment_amount: paymentAmount,
-        installment_plan: transactionNumber,
+        transaction_number: transactionNumber,
         language: language,
+        has_receipt: receiptFile !== null,
+        receipt_filename: receiptFile ? receiptFile.name : null,
       }),
     });
   },
